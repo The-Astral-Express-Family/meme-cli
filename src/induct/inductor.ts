@@ -394,7 +394,7 @@ export async function runAdd(
     throw new MemeError(
       'MEME_DUPLICATE',
       `词条名/别名与已有词条 ${dup.id}（${dup.name}）冲突`,
-      `用 meme_iterate 修订 ${dup.id}（带新证据）；确属不同梗请改用不冲突的名字。`,
+      `用 meme iterate 修订 ${dup.id}（带新证据）；确属不同梗请改用不冲突的名字。`,
     )
   }
 
@@ -435,7 +435,7 @@ export async function runAddEntry(
     throw new MemeError(
       'MEME_ENTRY_INVALID',
       `词条 JSON 校验失败：${(parsed.success ? 'card.gist 缺失' : parsed.error.message).slice(0, 400)}`,
-      'entry schema 见 meme_add 工具说明（JSON 字段与归纳器输出完全一致）。',
+      'entry schema 见 meme 手册（系统提示段）（JSON 字段与归纳器输出完全一致）。',
     )
   }
   out = parsed.data
@@ -453,7 +453,7 @@ export async function runAddEntry(
     throw new MemeError(
       'MEME_DUPLICATE',
       `词条名/别名与已有词条 ${dup.id}（${dup.name}）冲突`,
-      `用 meme_iterate 修订 ${dup.id}；确属不同梗请改用不冲突的名字。`,
+      `用 meme iterate 修订 ${dup.id}；确属不同梗请改用不冲突的名字。`,
     )
   }
 
@@ -490,7 +490,7 @@ export async function runIterate(
 ): Promise<AddResult> {
   const meme = getMeme(db, mid)
   if (!meme) {
-    throw new MemeError('MEME_NOT_FOUND', `未找到词条：${mid}`, '用 meme_search 找到目标词条 id 后重试。')
+    throw new MemeError('MEME_NOT_FOUND', `未找到词条：${mid}`, '用 meme search 找到目标词条 id 后重试。')
   }
   const ev = collectIterateEvidence(db, meme)
 
@@ -504,7 +504,7 @@ export async function runIterate(
       throw new MemeError(
         'MEME_ENTRY_INVALID',
         `词条 JSON 校验失败：${(parsed.success ? 'card.gist 缺失' : parsed.error.message).slice(0, 400)}`,
-        'entry schema 见 meme_add 工具说明。',
+        'entry schema 见 meme 手册（系统提示段）。',
       )
     }
     out = parsed.data

@@ -104,6 +104,6 @@ export function renderFocus(
     const pair = u.chain ? '（接龙拼接）' : u.parent ? `（楼中楼，父评 ${u.parent}）` : ''
     out.push(`  - ${u.text}${pair}`)
   }
-  out.push('', `决断：meme_add 归纳 ${cand.cid} | meme_note 记疑点 | 跳过等下轮`)
+  out.push('', `决断：add --cid ${cand.cid} 亲写 entry | note add --head 记疑点 | 跳过等下轮`)
   return out.join('\n')
 }

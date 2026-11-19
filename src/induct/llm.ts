@@ -1,12 +1,12 @@
 /**
  * Wire LLM 客户端：按 deepseek-harness 官方适配器的 Messages 协议直连。
  *
- * 端点：{DEEPSEEK_BASE_URL:-https://api.deepseek.com/anthropic}/v1/messages
- * 凭证：x-api-key: $DEEPSEEK_API_KEY（与 DSH 生态同一环境变量约定）。
- * 在 harness 内运行时优先用宿主的 llm 服务（见 tools/llm-service.ts），
- * 本客户端是独立运行与无 llm 服务时的回落。
+ * 端点：{induction.base_url | $DEEPSEEK_BASE_URL | 官方 anthropic 端点}/v1/messages
+ * 凭证：x-api-key: {induction.api_key | $DEEPSEEK_API_KEY}。
+ * 配置文件字段优先——agent shell 会被 harness 剥离密钥类环境变量，
+ * agent 驱动的归纳必须走 ~/.meme/config.json；环境变量只对人类终端有效。
  */
-import { DEFAULT_BASE_URL, type InductionConfig } from '../config.ts'
+import { DEFAULT_BASE_URL, ENV_API_KEY, ENV_BASE_URL, type InductionConfig } from '../config.ts'
 import { llmCallFailed, llmNoCredential, MemeError } from '../errors.ts'
 import { VERSION } from '../version.ts'
 
@@ -32,6 +32,11 @@ export interface LlmClient {
 /** 可重试的临时故障（限流/过载/5xx/传输层错误）。 */
 class Retryable extends Error {}
 
+/** 归纳凭证是否就位（配置字段或环境变量任一）。 */
+export function hasLlmCredential(cfg: InductionConfig): boolean {
+  return Boolean(cfg.api_key || process.env[ENV_API_KEY])
+}
+
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)
@@ -47,11 +52,12 @@ export class WireLlm implements LlmClient {
 
   constructor(cfg: InductionConfig) {
     this.cfg = cfg
-    this.base = (process.env[cfg.base_url_env] || DEFAULT_BASE_URL).replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1'
+    this.base = (cfg.base_url || process.env[ENV_BASE_URL] || DEFAULT_BASE_URL)
+      .replace(/\/+$/, '').replace(/\/v1$/, '') + '/v1'
   }
 
   private headers(): Record<string, string> {
-    const key = process.env[this.cfg.api_key_env]
+    const key = this.cfg.api_key || process.env[ENV_API_KEY]
     if (!key) throw llmNoCredential()
     return {
       'x-api-key': key,

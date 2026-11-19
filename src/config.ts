@@ -1,12 +1,13 @@
 /**
- * 插件配置：cordis.yml（Schemastery 校验 + 默认值）取代 Python 版 meme.toml。
- * 环境变量约定与 DSH 生态一致：MEME_DB（库路径）、DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL
- * （wire 归纳路径）、BILI_SESSDATA（由 sessdata_env 指定名的登录态）。
+ * 配置：单源 ~/.meme/config.json（JSON，snake_case，与旧 cordis.yml 字段同形）。
+ * CLI 是独立进程读不到 harness profile 的 cordis 配置——本文件是唯一配置面。
+ * 环境变量仅作临时覆盖；注意 harness 会剥离 agent shell 里的密钥类变量，
+ * 归纳凭证（induction.api_key）应写进配置文件而不是环境变量。
  */
-import { homedir } from 'node:os'
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
-import Schema from '@deepseek-ai/schemastery'
+import { MemeError } from './errors.ts'
 
 export const ENV_DB = 'MEME_DB'
 export const ENV_API_KEY = 'DEEPSEEK_API_KEY'
@@ -51,8 +52,10 @@ export interface InductionConfig {
   backtest_min_hit: number
   backtest_max_fp: number
   backtest_negatives: number
-  api_key_env: string
-  base_url_env: string
+  /** wire 直连凭证（优先）；空回落 $DEEPSEEK_API_KEY。 */
+  api_key?: string
+  /** wire 端点（优先）；空回落 $DEEPSEEK_BASE_URL 再回落官方 anthropic 端点。 */
+  base_url?: string
 }
 
 export interface RetrievalConfig {
@@ -79,10 +82,10 @@ export interface LifecycleConfig {
   backlog_alert: number
 }
 
+/** config.json 的原始形状（全部可选）。 */
 export interface Config {
   db_path?: string
   credentials_file?: string
-  llm_provider?: string
   fetch?: Partial<FetchConfig>
   induction?: Partial<InductionConfig>
   retrieval?: Partial<RetrievalConfig>
@@ -128,8 +131,6 @@ const DEFAULT_INDUCTION: InductionConfig = {
   backtest_min_hit: 0.7,
   backtest_max_fp: 0.02,
   backtest_negatives: 1000,
-  api_key_env: ENV_API_KEY,
-  base_url_env: ENV_BASE_URL,
 }
 
 const DEFAULT_RETRIEVAL: RetrievalConfig = {
@@ -156,88 +157,10 @@ const DEFAULT_LIFECYCLE: LifecycleConfig = {
   backlog_alert: 10,
 }
 
-const num = (fallback: number) => Schema.number().default(fallback)
-const bool = (fallback: boolean) => Schema.boolean().default(fallback)
-const str = (fallback: string) => Schema.string().default(fallback)
-const list = (fallback: number[]) => Schema.array(Schema.number()).default(fallback)
-
-/** Schemastery schema：Cordis 加载时校验配置并补默认值。 */
-export const Config = Schema.object({
-  db_path: Schema.string().role('path').description('SQLite 库路径，默认 ~/.meme/memes.db（$MEME_DB 覆盖）'),
-  credentials_file: Schema.string().description('meme login 写出的登录态文件，默认 ~/.meme/credentials.json'),
-  llm_provider: Schema.string().description('LLM 路径归纳用的 harness provider 路由（默认自动取第一个可用 provider）'),
-  fetch: Schema.object({
-    popular_pages: num(DEFAULT_FETCH.popular_pages),
-    weekly: bool(DEFAULT_FETCH.weekly),
-    feed: bool(DEFAULT_FETCH.feed),
-    feed_pages: num(DEFAULT_FETCH.feed_pages),
-    regions: list(DEFAULT_FETCH.regions),
-    region_pages: num(DEFAULT_FETCH.region_pages),
-    rank_regions: list(DEFAULT_FETCH.rank_regions),
-    related_of_top: num(DEFAULT_FETCH.related_of_top),
-    hot_words: bool(DEFAULT_FETCH.hot_words),
-    ups: list(DEFAULT_FETCH.ups),
-    videos_per_round: num(DEFAULT_FETCH.videos_per_round),
-    comments_per_video: num(DEFAULT_FETCH.comments_per_video),
-    reply_pages_per_video: num(DEFAULT_FETCH.reply_pages_per_video),
-    latest_pages_per_video: num(DEFAULT_FETCH.latest_pages_per_video),
-    max_per_source: num(DEFAULT_FETCH.max_per_source),
-    subreply_pages_per_root: num(DEFAULT_FETCH.subreply_pages_per_root),
-    max_comment_age_days: num(DEFAULT_FETCH.max_comment_age_days),
-    max_video_age_days: num(DEFAULT_FETCH.max_video_age_days),
-    sessdata_env: str(DEFAULT_FETCH.sessdata_env),
-    probe_keywords: num(DEFAULT_FETCH.probe_keywords),
-    subreply_roots: num(DEFAULT_FETCH.subreply_roots),
-    comment_images_per_round: num(DEFAULT_FETCH.comment_images_per_round),
-    delay_min: num(DEFAULT_FETCH.delay_min),
-    delay_max: num(DEFAULT_FETCH.delay_max),
-    timeout: num(DEFAULT_FETCH.timeout),
-  }).description('B站采样框'),
-  induction: Schema.object({
-    model: str(DEFAULT_INDUCTION.model),
-    small_model: str(DEFAULT_INDUCTION.small_model),
-    reasoning_effort: str(DEFAULT_INDUCTION.reasoning_effort),
-    max_tokens: num(DEFAULT_INDUCTION.max_tokens),
-    daily_call_budget: num(DEFAULT_INDUCTION.daily_call_budget),
-    backtest_holdout: num(DEFAULT_INDUCTION.backtest_holdout),
-    backtest_min_hit: num(DEFAULT_INDUCTION.backtest_min_hit),
-    backtest_max_fp: num(DEFAULT_INDUCTION.backtest_max_fp),
-    backtest_negatives: num(DEFAULT_INDUCTION.backtest_negatives),
-    api_key_env: str(DEFAULT_INDUCTION.api_key_env),
-    base_url_env: str(DEFAULT_INDUCTION.base_url_env),
-  }).description('归纳器与 backtest 闸门'),
-  retrieval: Schema.object({
-    default_level: str(DEFAULT_RETRIEVAL.default_level),
-    round_size: num(DEFAULT_RETRIEVAL.round_size),
-    search_top: num(DEFAULT_RETRIEVAL.search_top),
-    vector_threshold: num(DEFAULT_RETRIEVAL.vector_threshold),
-    rrf_k: num(DEFAULT_RETRIEVAL.rrf_k),
-    embed_model: str(DEFAULT_RETRIEVAL.embed_model),
-  }).description('检索与呈现'),
-  lifecycle: Schema.object({
-    trigger_rounds: num(DEFAULT_LIFECYCLE.trigger_rounds),
-    trigger_videos: num(DEFAULT_LIFECYCLE.trigger_videos),
-    trigger_z: num(DEFAULT_LIFECYCLE.trigger_z),
-    trigger_videos_alt: num(DEFAULT_LIFECYCLE.trigger_videos_alt),
-    trigger_fresh_videos: num(DEFAULT_LIFECYCLE.trigger_fresh_videos),
-    trigger_meme_score: num(DEFAULT_LIFECYCLE.trigger_meme_score),
-    promote_rounds: num(DEFAULT_LIFECYCLE.promote_rounds),
-    fade_window_days: num(DEFAULT_LIFECYCLE.fade_window_days),
-    fade_drop: num(DEFAULT_LIFECYCLE.fade_drop),
-    tombstone_ratio: num(DEFAULT_LIFECYCLE.tombstone_ratio),
-    candidate_expire_rounds: num(DEFAULT_LIFECYCLE.candidate_expire_rounds),
-    backlog_alert: num(DEFAULT_LIFECYCLE.backlog_alert),
-  }).description('候选与词条状态机阈值'),
-  detect: Schema.object({
-    generic_extra: Schema.array(Schema.string()).default([]),
-  }).description('检测层停用词扩展'),
-})
-
 /** 展平后的运行时配置（全部字段就位）。 */
 export interface ResolvedConfig {
   dbPath: string
   credentialsFile: string
-  llmProvider: string
   fetch: FetchConfig
   induction: InductionConfig
   retrieval: RetrievalConfig
@@ -254,13 +177,49 @@ export function resolveConfig(raw: Config = {}): ResolvedConfig {
   return {
     dbPath: envDb || raw.db_path || defaultDbPath(),
     credentialsFile: raw.credentials_file || join(homedir(), '.meme', 'credentials.json'),
-    llmProvider: raw.llm_provider || '',
     fetch: { ...DEFAULT_FETCH, ...raw.fetch },
     induction: { ...DEFAULT_INDUCTION, ...raw.induction },
     retrieval: { ...DEFAULT_RETRIEVAL, ...raw.retrieval },
     lifecycle: { ...DEFAULT_LIFECYCLE, ...raw.lifecycle },
     genericExtra: raw.detect?.generic_extra ?? [],
   }
+}
+
+export function configFile(): string {
+  return join(homedir(), '.meme', 'config.json')
+}
+
+/**
+ * 读 config.json（可缺省）并展开默认值。文件损坏是硬错误：
+ * 配置错误静默回默认会掩盖用户意图，不如当场报清楚。
+ */
+export function loadConfig(file: string = configFile()): ResolvedConfig {
+  let raw: Config = {}
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8')) as Config
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new MemeError(
+        'MEME_CONFIG_INVALID',
+        `配置文件解析失败：${file}（${e instanceof Error ? e.message : e}）`,
+        '修正该 JSON 或删除文件回到全默认；字段说明见 README。',
+      )
+    }
+  }
+  return resolveConfig(raw)
+}
+
+/** `meme config init` 的模板：全默认值展开，api_key 留空待填。 */
+export function configTemplate(): string {
+  return JSON.stringify({
+    db_path: '',
+    credentials_file: '',
+    fetch: { ...DEFAULT_FETCH },
+    induction: { ...DEFAULT_INDUCTION, api_key: '', base_url: '' },
+    retrieval: { ...DEFAULT_RETRIEVAL },
+    lifecycle: { ...DEFAULT_LIFECYCLE },
+    detect: { generic_extra: [] },
+  }, null, 2) + '\n'
 }
 
 /** meme login 写出的登录态。 */

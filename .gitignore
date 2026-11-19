@@ -10,3 +10,4 @@ lib/
 *.sqlite3
 .env
 probe.ts
+.zcode/
