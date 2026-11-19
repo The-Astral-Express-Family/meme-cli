@@ -165,8 +165,6 @@ export const InductionOutputSchema = z.object({
   card: CardSchema,
   examples: z.array(z.string()).default([]),
   matcher: MatcherSpecSchema.nullable().default(null),
-  /** 来源平台（bilibili/群聊/直播…）；空回落：surf 候选自动标 bilibili，否则 []。 */
-  platform: z.array(z.string()).default([]),
   lineage_parent: z.string().nullable().default(null),
   lineage_mutation: z.string().nullable().default(null),
   notes: z.string().nullable().default(null), // 归纳器自述（进 audit 不进 card）

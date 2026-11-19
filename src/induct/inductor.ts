@@ -311,7 +311,7 @@ function MemeDefault(out: InductionOutput, matcherSpec: MatcherSpec | null, fall
     aliases: out.aliases,
     class: out.class,
     lineage: { parent: out.lineage_parent, mutation: out.lineage_mutation },
-    platform: out.platform.length ? out.platform : fallbackPlatform,
+    platform: fallbackPlatform,
     state: 'observing',
     birth: { circa: out.birth_circa },
     matcher: matcherSpec,
