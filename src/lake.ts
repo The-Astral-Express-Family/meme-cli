@@ -46,12 +46,3 @@ export function randomNegativeComments(
   }
   return msgs
 }
-
-export function commentCount(db: DatabaseSync): number {
-  return (db.prepare('SELECT COUNT(*) AS c FROM lake_comments').get() as Row).c as number
-}
-
-export function recentCommentsSince(db: DatabaseSync, days: number): Row[] {
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400
-  return db.prepare('SELECT * FROM lake_comments WHERE ctime >= ? ORDER BY ctime').all(cutoff) as Row[]
-}

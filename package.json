@@ -20,9 +20,8 @@
     "meme": "lib/cli.js"
   },
   "files": [
-    "lib/index.js",
-    "lib/cli.js",
-    "lib/types/**/*.d.ts",
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
     "cordis.patch.yml",
     "README.md"
   ],

@@ -87,11 +87,6 @@ function slotFor(s: string): string {
   return SLOT_AT
 }
 
-/** 表情/URL/@/BV号 → 槽位占位（供短语通道复用，防表情名泄漏成词）。 */
-export function preReplace(text: string): string {
-  return text.replace(RE_SUB, (m) => slotFor(m))
-}
-
 export interface SpannedToken { token: string; start: number; end: number }
 
 /** 归一化 token 序列，附原文本字符偏移。 */

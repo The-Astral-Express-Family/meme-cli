@@ -44,7 +44,20 @@ const MANUAL = `## meme —— B站梗百科
 - 笔记（note）是低信任区：疑点先记 note 不建词条，证据够了再 add
 
 entry JSON schema（meme_add / meme_iterate 的亲写词条路径，全部字段必填，无内容用 null/[]）：
-${SCHEMA_DOC}`
+${SCHEMA_DOC}
+
+最小可抄 entry 示例：
+\`\`\`json
+{
+  "name": "我软脚了", "aliases": ["软脚了"], "class": "word", "birth_circa": "2024",
+  "card": {"gist": "关键局操作变形的自嘲", "usage": ["决胜局我软脚了"],
+           "taboo": "别用于真实伤病", "register": "电竞圈", "aggression": "低"},
+  "examples": ["决胜局我软脚了"],
+  "matcher": {"patterns": [{"kind": "lex", "terms": ["我软脚了", "软脚了"]}],
+              "constraints": {"forbid_inner": true}},
+  "lineage_parent": null, "lineage_mutation": null, "notes": null
+}
+\`\`\``
 
 export function apply(ctx: Context, config: Config): void {
   const rt = createRuntime(ctx, config)
