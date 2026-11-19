@@ -303,5 +303,3 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
     human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize)),
   }
 }
-
-export { resolveSessdata }
