@@ -105,11 +105,12 @@ export class WireLlm implements LlmClient {
     const chunks: string[] = []
     const usage: { input_tokens?: number; output_tokens?: number } = {}
     let stopReason: string | null = null
+    const headers = this.headers() // 凭证错误（MemeError）在 fetch 之外抛出，不被传输层重试吞噬
     let resp: Response
     try {
       resp = await fetch(`${this.base}/messages`, {
         method: 'POST',
-        headers: this.headers(),
+        headers,
         body: JSON.stringify(body),
         signal,
       })

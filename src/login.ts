@@ -31,6 +31,8 @@ export interface LoginOptions {
   timeoutMs?: number
   /** 测试注入：不弹浏览器。 */
   openBrowser?: boolean
+  /** 服务就绪回调（测试驱动轮询用；地址同时打印到控制台）。 */
+  onReady?: (url: string) => void
 }
 
 export async function runLogin(opts: LoginOptions): Promise<LoginOutcome> {
@@ -45,6 +47,7 @@ export async function runLogin(opts: LoginOptions): Promise<LoginOutcome> {
   })
   const url = `http://127.0.0.1:${server.port}/`
   console.log(`meme login: 浏览器未自动打开时，请手动访问 ${url}`)
+  opts.onReady?.(url)
   if (opts.openBrowser !== false) openInBrowser(url)
 
   const deadline = Date.now() + timeoutMs
