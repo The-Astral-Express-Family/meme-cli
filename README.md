@@ -6,7 +6,7 @@
 自己接梗时不出错（卡片的 usage/taboo/aggression）、发现群外正在发生的新梗（surf）、
 并且知道自己的梗知识可能是错的（iterate）。
 
-- **纯 CLI 形态**：harness 工具目录**零占用**——操作面全部在 `meme` CLI，主控 agent 经 bash/pwsh 调用；插件本体只做两件事：systemPrompt 注入玩法手册、shellEnv 注入调用入口。
+- **纯 CLI 形态**：harness 工具目录**零占用**——操作面全部在 `meme` CLI，主控 agent 经 bash/pwsh 调用；插件本体只做两件事：注册 meme skill（一句话目录 + 按需展开的手册）、shellEnv 注入调用入口。
 - **读写路径分离**：write path（surf / add / iterate）发生 LLM 推理与外呼；read path（lookup / search / show）全本地、毫秒级。
 - **零自治**：完全被动，什么时候 surf、一轮刷多深，由调用方决断。
 - **自持数据**：单个 SQLite 文件（默认 `~/.meme/memes.db`），备份 = 拷贝文件；数据格式与 Python v0.2 双向兼容。
@@ -19,9 +19,9 @@
 | 面 | 入口 | 作用 |
 | --- | --- | --- |
 | **CLI**（操作面） | `bin` 的 `meme`（`lib/cli.js`） | 9 组子命令，stdout = 单行 JSON（agent 消费），stderr = 人读文本；业务失败 exit 1 且 stdout 仍有 `{"error":{"code","message","suggestion",...}}`，用法错误 exit 2 |
-| **shim**（插件面，prompt-only） | `lib/index.js`，`inject: ['systemPrompt', 'shellEnv']` | ① systemPrompt 注入手册（决策树/规律/entry schema）；② shellEnv 注入 `DSH_MEME_NODE`（harness 进程的 node）与 `DSH_MEME_BIN`（cli.js 绝对路径）——harness 不给 agent shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道 |
+| **shim**（插件面，prompt-only） | `lib/index.js`，`inject: ['skills', 'shellEnv']` | ① `ctx.skills.register` 注册 meme 技能——**未激活形态只有技能目录里的一行**（81 字符 ≈ 57 tokens 常驻）；模型经 `skill` 工具按需展开全文（≈2.2k tokens，会话瞬态不常驻），**用户消息首行 `/meme` 也是确定性加载手势**；② shellEnv 注入 `DSH_MEME_NODE`（harness 进程的 node）与 `DSH_MEME_BIN`（cli.js 绝对路径）——harness 不给 agent shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道 |
 
-agent 调用样板（手册注入后 agent 自会使用）：
+agent 调用样板（先 `skill meme` 展开手册，之后自会使用）：
 
 ```sh
 "$DSH_MEME_NODE" "$DSH_MEME_BIN" lookup "这是什么梗"     # bash
@@ -39,7 +39,7 @@ dsh plugin --profile <name> add github:you/dsh-meme     # git（需 pnpm allowBu
 npm i -g dsh-meme
 ```
 
-要求 Node ≥ 22.19（node:sqlite），dsh ≥ 0.2.0。没有 bash/pwsh 工具的 profile 里 shim 不生效（没有 shell 本就无从调 CLI）。
+要求 Node ≥ 22.19（node:sqlite），dsh ≥ 0.2.0。skill/shellEnv 注入依赖 profile 装载 dsh-skill 与 bash/pwsh 工具（标准 profile 默认具备）；缺任一则 shim 不生效——没有 shell 本就无从调 CLI。
 
 ## CLI 一览
 
@@ -128,7 +128,7 @@ npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召�
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
 ```
 
-## 已知边界（v0.4）
+## 已知边界（v0.5）
 
 - 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载；离线时向量层降级为纯词法。
 - B站搜索接口需登录态（`meme login`），匿名时探测通道自动跳过。

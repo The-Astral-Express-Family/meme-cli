@@ -280,25 +280,30 @@ describe('config', () => {
 // ---- shim ----
 
 describe('shim（prompt-only 插件）', () => {
-  it('shellEnv 注册 + systemPrompt 手册段', () => {
+  it('skill 注册（未激活=目录一行）+ shellEnv 注册', () => {
     let captured: BashEnvContributor | null = null
-    const sections: Array<{ name: string; order: number; text: string }> = []
+    const skills: Array<{ name: string; description: string; content: string }> = []
     const fakeCtx = {
+      skills: { register: (s: { name: string; description: string; content: string }) => { skills.push(s); return () => {} } },
       shellEnv: { register: (c: BashEnvContributor) => { captured = c; return () => {} } },
-      get: (k: string) => (k === 'systemPrompt' ? { section: (s: { name: string; order: number; text: string }) => sections.push(s) } : undefined),
     } as unknown as Context
     apply(fakeCtx)
+    expect(skills).toHaveLength(1)
+    expect(skills[0].name).toBe('meme')
+    // 未激活形态：单行路由描述，在 500 字符目录上限内
+    expect(skills[0].description).not.toContain('\n')
+    expect(skills[0].description.length).toBeLessThanOrEqual(500)
+    expect(skills[0].description).toContain('B站梗百科')
+    // 展开正文：调用样板 + entry schema 全文都在
+    expect(skills[0].content).toContain('$DSH_MEME_BIN')
+    expect(skills[0].content).toContain('entry JSON schema')
+    expect(skills[0].content).toContain('"forbid_inner": true')
     expect(captured).not.toBeNull()
     expect(captured!.name).toBe('dsh-meme')
     expect(Object.keys(captured!.variables)).toEqual(['DSH_MEME_NODE', 'DSH_MEME_BIN'])
     const env = captured!.resolve({} as never)
     expect(env.DSH_MEME_NODE).toBe(process.execPath)
     expect(env.DSH_MEME_BIN).toMatch(/cli\.js$/)
-    expect(sections).toHaveLength(1)
-    expect(sections[0].name).toBe('meme')
-    expect(sections[0].order).toBe(2450)
-    expect(sections[0].text).toContain('$DSH_MEME_BIN')
-    expect(sections[0].text).toContain('entry JSON schema')
     expect(shimName).toBe('dsh-meme')
   })
 })

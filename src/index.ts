@@ -1,21 +1,23 @@
 /**
  * dsh-meme shim：prompt-only 插件（零工具注册）。
  * 操作面全部在 meme CLI；本插件只负责让主控 agent 知道它存在、怎么调：
- * ① systemPrompt 注入 CLI 手册（决策树 + 规律 + entry schema，一处权威）
- * ② shellEnv 注入 DSH_MEME_NODE / DSH_MEME_BIN——harness 不给 agent 的 shell
- *    加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道
+ * ① skill 注册——未激活形态只有技能目录里的一行 name+description，
+ *    模型经 `skill meme` 工具按需展开全文，用户消息首行 `/meme` 也是
+ *    确定性加载手势。手册（决策树/规律/entry schema）不常驻系统提示。
+ * ② shellEnv 注入 DSH_MEME_NODE / DSH_MEME_BIN——harness 不给 agent 的
+ *    shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道
  *   （先例：harness 的 skill-office 以同法暴露随包 LibreOffice Kit CLI）。
  */
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BashEnvContributor } from '@deepseek-ai/dsh-shell-env'
+import type { SkillRegistration } from '@deepseek-ai/dsh-skill'
 import { SCHEMA_DOC } from './induct/prompts.ts'
 
 export const name = 'dsh-meme'
-export const inject = ['systemPrompt', 'shellEnv']
+export const inject = ['skills', 'shellEnv']
 
-/** 面向主控 agent 的玩梗手册：只放反复可用的规律与决策树，不放一次性信息。 */
-const MANUAL = `## meme —— B站梗百科（CLI）
+const MANUAL = `# meme —— B站梗百科（CLI）
 
 一句话：\`meme lookup\` 理解别人在玩什么梗，\`meme add\` 收录新梗，\`meme surf\` 策展发现，\`meme search\` 模糊回忆。
 调用方式（harness 已注入环境变量，bash）：
@@ -61,6 +63,15 @@ ${SCHEMA_DOC}
 }
 \`\`\``
 
+/** 未激活形态 = 目录一行（≤500 字符上限内的一句路由描述）；展开靠 skill 工具或用户 /meme。 */
+const SKILL: SkillRegistration = {
+  name: 'meme',
+  source: 'runtime',
+  description: 'B站梗百科 CLI（meme）：识别/接梗/收录/检索/修订 B站梗，surf 看B站正在发生什么梗'
+    + '——群里出现摸不着头脑的梗、要收录新梗、回忆梗名时先加载本技能',
+  content: MANUAL,
+}
+
 /** bundler 对 new URL('相对字面量', import.meta.url) 有静态 asset 解析倾向；手工拼 URL 避开。 */
 function cliEntrypoint(): string {
   return fileURLToPath(import.meta.url.replace(/[^/]*$/, 'cli.js'))
@@ -76,7 +87,6 @@ const contributor: BashEnvContributor = {
 }
 
 export function apply(ctx: Context): void {
+  ctx.skills.register(SKILL)
   ctx.shellEnv.register(contributor)
-  const sp = ctx.get('systemPrompt')
-  sp?.section({ name: 'meme', order: 2450, text: MANUAL })
 }
