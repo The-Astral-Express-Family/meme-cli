@@ -1,0 +1,5 @@
+# dsh-meme 插件层：B站梗百科工具组。
+# 配置 schema 与默认值见 src/config.ts（Schemastery）；本行只保留身份与最小配置。
+- insert:
+    - id: meme
+      name: dsh-meme
