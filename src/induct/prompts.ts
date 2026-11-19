@@ -1,6 +1,6 @@
 /** 归纳提示词：证据包 → 结构化词条 JSON。无原生结构化输出——JSON 围栏 + 代码侧校验 + 一轮修复。 */
 
-export const SYSTEM = `你是 B站梗百科的归纳器。依据证据（真实用例 + 传播统计）归纳梗词条。
+export const SYSTEM = `你是梗百科的归纳器。依据证据（真实用例 + 传播统计）归纳梗词条；来源平台不限（bilibili/群聊/直播/任意社区）。
 铁律：
 1. 只依据证据归纳，不臆测证据外的含义；用例不足以判断的字段填 null。
 2. 输出必须是一个 JSON 对象，放在 \`\`\`json 围栏中，不要输出任何其他内容。
@@ -27,6 +27,7 @@ export const SCHEMA_DOC = `输出 JSON schema（全部字段必填，无内容�
     "aggression": "低|中|高"
   },
   "examples": ["代表性例句 3-5 条，取自证据或其最小改写"],
+  "platform": ["来源平台，如 \\"bilibili\\" / \\"群聊\\" / \\"直播\\"（可多个；surf 候选收录时不写，自动标 bilibili；不确定给 []）"],
   "matcher": {
     "patterns": [
       {"kind": "lex", "terms": ["字面词", "别名"]},

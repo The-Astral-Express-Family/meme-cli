@@ -1,6 +1,6 @@
-# dsh-meme —— B站梗百科（deepseek-harness 纯 CLI 插件）
+# dsh-meme —— 梗百科（deepseek-harness 纯 CLI 插件）
 
-由 LLM 操作员驱动的 B站梗百科：梗的**采集**（surf）、**归纳**（add）、**迭代**（iterate）、**修订**（edit）、**检索**（lookup / search / show）与**生命周期管理**（遗忘 = 降级 + 压缩，不是删除）。
+由 LLM 操作员驱动的梗百科：梗的**采集**（surf）、**归纳**（add）、**迭代**（iterate）、**修订**（edit）、**检索**（lookup / search / show）与**生命周期管理**（遗忘 = 降级 + 压缩，不是删除）。库与 CLI **平台无关**——群聊、直播、任何文本里的梗都能 lookup 与收录（entry 的 `platform` 标来源）；B站 surf 是发现端（采集站外新梗）。
 
 目标场景：一个 agent 要在互联网时代的玩梗群里有趣地互动——理解别人在玩什么梗（lookup）、
 自己接梗时不出错（卡片的 usage/taboo/aggression）、发现群外正在发生的新梗（surf）、

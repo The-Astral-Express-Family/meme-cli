@@ -130,15 +130,17 @@ describe('read path 命令', () => {
 
 // ---- write path 命令 ----
 
-const entry = () => ({
+const entry = (overrides: Record<string, unknown> = {}) => ({
   name: '青铜巨像',
   aliases: ['青铜像'],
   class: 'word' as const,
   birth_circa: '2026',
   card: { gist: '测试用词梗', usage: ['青铜巨像，名场面'], taboo: null, register: null, aggression: '低' },
   examples: ['青铜巨像，第1个名场面', '真青铜巨像'],
+  platform: ['群聊'],
   matcher: { patterns: [{ kind: 'lex', terms: ['青铜巨像', '青铜像'] }], constraints: {} },
   notes: '操作员测试词条',
+  ...overrides,
 })
 
 function seedCandidateWithEvidence(db: Runtime['db']): string {
@@ -165,9 +167,32 @@ describe('write path 命令', () => {
       expect(out.payload.model).toBe('operator')
       expect(out.payload.id).toMatch(/^m_/)
       expect(out.human).toContain('已入库')
+      // entry 声明的 platform 优先于 cid 的 bilibili 回落
+      const row = rt.db().prepare('SELECT platform FROM memes WHERE id=?').get(out.payload.id as string) as { platform: string }
+      expect(JSON.parse(row.platform)).toEqual(['群聊'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('entry 未声明 platform + surf 候选 → 自动标 bilibili；无 cid → 留空', async () => {
+    const cid = seedCandidateWithEvidence(rt.db)
+    const bare = entry()
+    delete (bare as Record<string, unknown>).platform
+    const out = await COMMANDS.add.run({ _: [], flags: { cid, 'entry-json': JSON.stringify(bare) } }, rt)
+    const row = rt.db().prepare('SELECT platform FROM memes WHERE id=?').get(out.payload.id as string) as { platform: string }
+    expect(JSON.parse(row.platform)).toEqual(['bilibili'])
+    // 无 cid（群聊裸文本路径）：agent 没写就不猜
+    const bare2 = entry({
+      name: '线上嘴替', aliases: ['嘴替'],
+      card: { gist: '代为输出心声的人', usage: ['这就是我的线上嘴替'], taboo: null, register: null, aggression: '低' },
+      examples: ['这个博主真是线上嘴替', '嘴替了属于是'],
+      matcher: { patterns: [{ kind: 'lex', terms: ['线上嘴替', '嘴替'] }], constraints: {} },
+    })
+    delete (bare2 as Record<string, unknown>).platform
+    const out2 = await COMMANDS.add.run({ _: [], flags: { 'entry-json': JSON.stringify(bare2) } }, rt)
+    const row2 = rt.db().prepare('SELECT platform FROM memes WHERE id=?').get(out2.payload.id as string) as { platform: string }
+    expect(JSON.parse(row2.platform)).toEqual([])
   })
 
   it('add 重名 → MEME_DUPLICATE 引导 iterate', async () => {
@@ -293,7 +318,8 @@ describe('shim（prompt-only 插件）', () => {
     // 未激活形态：单行路由描述，在 500 字符目录上限内
     expect(skills[0].description).not.toContain('\n')
     expect(skills[0].description.length).toBeLessThanOrEqual(500)
-    expect(skills[0].description).toContain('B站梗百科')
+    expect(skills[0].description).toContain('梗百科')
+    expect(skills[0].description).toContain('群聊梗可直接收录')
     // 展开正文：调用样板 + entry schema 全文都在
     expect(skills[0].content).toContain('$DSH_MEME_BIN')
     expect(skills[0].content).toContain('entry JSON schema')

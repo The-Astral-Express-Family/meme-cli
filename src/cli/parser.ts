@@ -95,7 +95,7 @@ export function cmdUsage(spec: CmdSpec, version: string): string {
 /** 顶层帮助（无参数/未知命令）。 */
 export function topUsage(specs: CmdSpec[], version: string): string {
   const lines = [
-    `meme ${version} —— B站梗百科 CLI（agent 经 harness 注入的 $DSH_MEME_NODE/$DSH_MEME_BIN 调用）`,
+    `meme ${version} —— 梗百科 CLI（agent 经 harness 注入的 $DSH_MEME_NODE/$DSH_MEME_BIN 调用）`,
     '',
     '用法：meme <子命令> [参数]（每个子命令 --help 可查详情）',
     '',

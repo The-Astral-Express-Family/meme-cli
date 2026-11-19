@@ -17,9 +17,10 @@ import { SCHEMA_DOC } from './induct/prompts.ts'
 export const name = 'dsh-meme'
 export const inject = ['skills', 'shellEnv']
 
-const MANUAL = `# meme —— B站梗百科（CLI）
+const MANUAL = `# meme —— 梗百科（CLI）
 
 一句话：\`meme lookup\` 理解别人在玩什么梗，\`meme add\` 收录新梗，\`meme surf\` 策展发现，\`meme search\` 模糊回忆。
+梗库不限来源：群聊、直播、任何文本里的梗都能 lookup 与收录（entry 的 platform 标来源）；surf 只是 B站采集端。
 调用方式（harness 已注入环境变量，bash）：
 \`\`\`
 "$DSH_MEME_NODE" "$DSH_MEME_BIN" <子命令> [参数]   # pwsh 用 & $env:DSH_MEME_NODE $env:DSH_MEME_BIN ...
@@ -54,6 +55,7 @@ ${SCHEMA_DOC}
 \`\`\`json
 {
   "name": "我软脚了", "aliases": ["软脚了"], "class": "word", "birth_circa": "2024",
+  "platform": ["群聊"],
   "card": {"gist": "关键局操作变形的自嘲", "usage": ["决胜局我软脚了"],
            "taboo": "别用于真实伤病", "register": "电竞圈", "aggression": "低"},
   "examples": ["决胜局我软脚了"],
@@ -67,7 +69,7 @@ ${SCHEMA_DOC}
 const SKILL: SkillRegistration = {
   name: 'meme',
   source: 'runtime',
-  description: 'B站梗百科 CLI（meme）：识别/接梗/收录/检索/修订 B站梗，surf 看B站正在发生什么梗'
+  description: '梗百科 CLI（meme）：识别/接梗/收录/检索/修订梗——不限来源，群聊梗可直接收录；surf 采B站新梗'
     + '——群里出现摸不着头脑的梗、要收录新梗、回忆梗名时先加载本技能',
   content: MANUAL,
 }

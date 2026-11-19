@@ -213,6 +213,8 @@ async function gateAndBuild(
     model?: string
     strict?: boolean
     force?: boolean
+    /** 未声明 platform 时的回落标签（surf 候选 = bilibili，其余来源 []）。 */
+    platform?: string[]
     signal?: AbortSignal
   },
 ): Promise<[Meme, BacktestResult | null, string[], number, boolean]> {
@@ -249,7 +251,7 @@ async function gateAndBuild(
     if (out.lineage_parent) meme.lineage = { parent: out.lineage_parent, mutation: out.lineage_mutation }
     meme.matcher = matcherSpec
   } else {
-    meme = MemeDefault(out, matcherSpec)
+    meme = MemeDefault(out, matcherSpec, opts.platform ?? [])
   }
 
   let bt: BacktestResult | null = null
@@ -301,7 +303,7 @@ async function gateAndBuild(
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
 
-function MemeDefault(out: InductionOutput, matcherSpec: MatcherSpec | null): Meme {
+function MemeDefault(out: InductionOutput, matcherSpec: MatcherSpec | null, fallbackPlatform: string[]): Meme {
   const ts = nowIso()
   return {
     id: '',
@@ -309,7 +311,7 @@ function MemeDefault(out: InductionOutput, matcherSpec: MatcherSpec | null): Mem
     aliases: out.aliases,
     class: out.class,
     lineage: { parent: out.lineage_parent, mutation: out.lineage_mutation },
-    platform: ['bilibili'],
+    platform: out.platform.length ? out.platform : fallbackPlatform,
     state: 'observing',
     birth: { circa: out.birth_circa },
     matcher: matcherSpec,
@@ -402,6 +404,7 @@ export async function runAdd(
   const positives = [...ev.usages.map((u) => u.text as string).filter(Boolean), ...out.examples]
   const [meme, bt, warnings, revisions, degraded] = await gateAndBuild(db, cfg, out, {
     positives, holdout_texts: holdoutTexts, holdout_ctx: holdoutCtx,
+    platform: opts.cid ? ['bilibili'] : [],
     llm, model, signal: opts.signal,
   })
 
@@ -467,6 +470,7 @@ export async function runAddEntry(
   }
   const [meme, bt, warnings, , degraded] = await gateAndBuild(db, cfg, out, {
     positives, holdout_texts: holdoutTexts, holdout_ctx: holdoutCtx,
+    platform: opts.cid ? ['bilibili'] : [],
     strict: true, force: opts.force ?? false,
   })
 
