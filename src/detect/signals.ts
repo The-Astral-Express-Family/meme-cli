@@ -20,7 +20,7 @@ import type { ResolvedConfig } from '../config.ts'
 import { allActive, save as saveCand, upsertFromSignal, type VideoPair } from '../candidates.ts'
 import type { Candidate } from '../models.ts'
 import { allMemes } from '../entries.ts'
-import { commentsForRound, upMidMap } from '../lake.ts'
+import { commentsForRound, titlesForRound, upMidMap } from '../lake.ts'
 import { vectorNearest } from '../match/pipeline.ts'
 import { getEmbedder, type Embedder } from '../match/vector.ts'
 import { type UsageSample, todayIso } from '../models.ts'
@@ -53,6 +53,14 @@ export const GENERIC = new Set([
 const MIN_OCCUR = 2 // 轮内最低出现次数（跨轮累积由候选合流承担）
 const MIN_VIDEOS = 2 // 轮内跨视频门槛（视频内梗降一档不入队）
 const MAX_DF_RATIO = 0.35 // 出现在超过此比例评论中的短语视为泛用词
+
+/**
+ * 视频标题的证据权重。标题是 up 主刻意为之的文本（写标题要过脑子，评论区是
+ * 顺手打字），一条玩梗标题 ≈ 5 条自然评论的证据强度；量级上每轮仅 15-30 条
+ * 标题 vs 数千评论，加权不会淹没评论侧统计。计票只发生在发现层（本文件），
+ * 入库的用例样本不带权重（evidence blob 与 Python v0.2 键兼容）。
+ */
+const TITLE_WEIGHT = 5
 
 /**
  * 客套成分检测：复读信号对礼貌性刷词（"视频做得真不错"跨视频复读）同样成立，
@@ -111,6 +119,8 @@ interface Unit {
   mid: number
   ctime: number
   chain: boolean
+  /** 证据计票权重（评论=1，标题=TITLE_WEIGHT）。 */
+  weight: number
 }
 
 /** 三级停用词：内置 GENERIC ∪ 配置 generic_extra ∪ kv generic_auto（--ban 沉淀）；kv generic_allow 为豁免表。 */
@@ -208,7 +218,7 @@ function collectUnits(comments: Row[]): Unit[] {
     if (!c.message) continue
     units.push({
       text: c.message, aid: c.oid, rpid: c.rpid, root: c.root,
-      parent: c.parent, mid: c.mid, ctime: c.ctime, chain: false,
+      parent: c.parent, mid: c.mid, ctime: c.ctime, chain: false, weight: 1,
     })
   }
   const byRoot = new Map<number, Row[]>()
@@ -237,7 +247,7 @@ function collectUnits(comments: Row[]): Unit[] {
       units.push({
         text: r.map((c) => String(c.message).trim()).join(''),
         aid: r[0].oid, rpid: r[0].rpid, root: r[0].root,
-        parent: r[0].parent, mid: r[r.length - 1].mid, ctime: r[r.length - 1].ctime, chain: true,
+        parent: r[0].parent, mid: r[r.length - 1].mid, ctime: r[r.length - 1].ctime, chain: true, weight: 1,
       })
     }
   }
@@ -266,8 +276,16 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
     copy_candidates: 0, image_candidates: 0, triggered: [],
   }
   const comments = commentsForRound(db, roundId)
-  if (!comments.length) return res
   const units = collectUnits(comments)
+  // 视频标题作为高权重单元入场：标题本身就在玩梗（up 主刻意为之），
+  // rpid/mid 置 0——标题无楼中楼链，不参与交互配对与 df 文档计数
+  for (const t of titlesForRound(db, roundId)) {
+    units.push({
+      text: t.title, aid: t.aid, rpid: 0, root: 0, parent: 0,
+      mid: 0, ctime: t.pubdate, chain: false, weight: TITLE_WEIGHT,
+    })
+  }
+  if (!units.length) return res
   res.scanned = units.length
   const ctx: Ctx = {
     db, roundId, day: todayIso(), upMap: upMidMap(db),
@@ -279,7 +297,7 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
     const msgPhrases = ngram.phrases(u.text)
     ctx.perComment.push([u, msgPhrases])
     for (const ph of msgPhrases) {
-      ctx.phCnt.set(ph, (ctx.phCnt.get(ph) ?? 0) + 1)
+      ctx.phCnt.set(ph, (ctx.phCnt.get(ph) ?? 0) + u.weight)
       if (!ctx.phVideos.has(ph)) ctx.phVideos.set(ph, new Set())
       ctx.phVideos.get(ph)!.add(u.aid)
     }
@@ -458,7 +476,8 @@ async function copyChannel(ctx: Ctx): Promise<void> {
   }
   for (const [k, us] of copyGroups) {
     const vids = new Set(us.map((u) => u.aid))
-    if (vids.size < MIN_VIDEOS || us.length < MIN_OCCUR) continue
+    const wsum = us.reduce((a, u) => a + u.weight, 0)
+    if (vids.size < MIN_VIDEOS || wsum < MIN_OCCUR) continue
     if (isEtiquette(k)) continue // 客套整句复读（跨视频粘贴）不是梗：成分检测拦截
     // 回复为主的复读 → 交互梗预判（楼中楼对就是 interaction 证据）
     const replyRatio = us.filter((u) => u.parent).length / us.length
@@ -478,7 +497,7 @@ async function copyChannel(ctx: Ctx): Promise<void> {
       usages: us.slice(0, 6).map(usageOf), video_pairs: pairsOf(ctx, vids),
       day: ctx.day, round_id: ctx.roundId,
     })
-    bumpDaily(ctx, 'phrase_daily', head, us.length, vids.size)
+    bumpDaily(ctx, 'phrase_daily', head, us.reduce((a, u) => a + u.weight, 0), vids.size)
     await pump(ctx, cand)
     ctx.res.copy_candidates += 1
   }
@@ -494,7 +513,7 @@ async function skeletonChannel(ctx: Ctx): Promise<void> {
   for (const [u] of ctx.perComment) {
     if (!u.text) continue
     for (const sk of skeletonVariants(u.text)) {
-      skCnt.set(sk, (skCnt.get(sk) ?? 0) + 1)
+      skCnt.set(sk, (skCnt.get(sk) ?? 0) + u.weight)
       if (!skVideos.has(sk)) skVideos.set(sk, new Set())
       skVideos.get(sk)!.add(u.aid)
       if (!skTexts.has(sk)) skTexts.set(sk, new Set())

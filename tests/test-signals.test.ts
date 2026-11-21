@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { updateSignals } from '../src/detect/signals.ts'
 import * as candidates from '../src/candidates.ts'
 import { makeCfg, openDb, seedComments } from './helpers.ts'
+import { nowIso } from '../src/models.ts'
 
 let env: { db: ReturnType<typeof openDb>; cfg: ReturnType<typeof makeCfg>['cfg'] }
 beforeEach(() => {
@@ -157,5 +158,47 @@ describe('关联预计算', () => {
         expect(u.text.includes(head), `${head} 的用例文本错位：${u.text}`).toBe(true)
       }
     }
+  })
+})
+
+// ---- 标题证据：视频标题本身在玩梗，按 TITLE_WEIGHT 加权计票 ----
+
+/** 灌一条视频标题：surf_runs.started_at 取 1 分钟前，保证 fetched_at 落在本轮界内。 */
+function seedTitle(db: ReturnType<typeof openDb>, aid: number, title: string, roundId = 1): void {
+  const d = new Date(Date.now() - 60_000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  const started = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  db.prepare('INSERT OR IGNORE INTO surf_runs(round_id, started_at) VALUES(?, ?)').run(roundId, started)
+  db.prepare(
+    'INSERT INTO lake_videos(aid,bvid,title,rid,up_mid,up_name,pubdate,reply_count,fetched_at,source) '
+    + 'VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(aid) DO UPDATE SET title=excluded.title, fetched_at=excluded.fetched_at',
+  ).run(aid, `BV${aid % 100000}`, title, 119, 0, `up${aid}`, Math.floor(Date.now() / 1000), 0, nowIso(), 'test')
+}
+
+describe('标题证据（标题玩梗按 TITLE_WEIGHT 计票）', () => {
+  it('单条标题 + 单条评论跨视频即立户（权重是决定因素）', async () => {
+    seedComments(env.db, ['看完这个视频我蚌埠住了'], [1002], 1)
+    seedTitle(env.db, 1001, '全网最全蚌埠住了合集')
+    env.db.prepare("UPDATE lake_videos SET title='' WHERE aid=1002").run() // 清掉 seedComments 顺手插的 junk 标题
+    const res = await updateSignals(env.db, env.cfg, 1)
+    expect(res.scanned).toBe(2) // 1 评论 + 1 标题
+    expect(candidates.byHead(env.db, '蚌埠住了')).not.toBeNull()
+  })
+
+  it('对照：同样一条评论、无标题 → 不入户', async () => {
+    seedComments(env.db, ['看完这个视频我蚌埠住了'], [1002], 1)
+    await updateSignals(env.db, env.cfg, 1)
+    expect(candidates.byHead(env.db, '蚌埠住了')).toBeNull()
+  })
+
+  it('仅两条不同视频的标题，同公式骨架即立户（零评论轮次也跑检测）', async () => {
+    seedTitle(env.db, 2001, '这个丁真真的太抽象了')
+    seedTitle(env.db, 2002, '这个老八真的太抽象了')
+    const res = await updateSignals(env.db, env.cfg, 1)
+    expect(res.scanned).toBe(2)
+    const row = env.db.prepare(
+      "SELECT head FROM candidates WHERE channel='skeleton' AND head LIKE '%抽象%'",
+    ).get() as { head: string } | undefined
+    expect(row, '公式骨架候选未建立').toBeDefined()
   })
 })

@@ -246,7 +246,7 @@ describe('config', () => {
       const cfg = loadConfig(file)
       expect(cfg.dbPath).toBe('D:/x/memes.db')
       expect(cfg.induction.api_key).toBe('sk-x')
-      expect(cfg.fetch.videos_per_round).toBe(15) // 未写字段回落默认
+      expect(cfg.fetch.videos_per_round).toBe(30) // 未写字段回落默认
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
