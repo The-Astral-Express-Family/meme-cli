@@ -152,9 +152,19 @@ export interface HygieneResult {
  *    领地（整句重复由 copy 候选承载），phrase 侧切片（代练广告/活动文案的子串）删除；
  * 2) 包含族合并：head 互为包含且视频重合 ≥50%×较小 dv → 并入排名更高的一方
  *    （phrase_daily 终身计数 desc → dv desc → 更长 head desc），证据并集、视频迁移。
+ *    长梗并入短词头时多一道容器守卫（见 CONTAINER_DV_RATIO）：泛用容器词
+ *    （"感觉" dv=49）的高计数来自无关用法，会吞掉恰好是它子串的真梗
+ *    （"感觉不如"），合并改为双方保留。
  * 只动 phrase 通道——copy/skeleton/image 各有独立判别语义；rejected 不参与
  * （操作员已裁决）。candidates 是可从原始湖重建的派生状态，删除安全。
  */
+
+/**
+ * 容器守卫阈值：keeper 视频量超过被吸收方该倍数时视为泛用容器，不得吸收
+ * 比自己更长的 head。真实池标定：同表达家族"韩立(22dv)←韩立的(4dv)"≈5.5×，
+ * 容器词"感觉(49dv)←感觉不如(2dv)"≈24.5×，阈值取中间的 8。
+ */
+export const CONTAINER_DV_RATIO = 8
 export function hygienePass(db: DatabaseSync): HygieneResult {
   const res: HygieneResult = { merged: 0, pruned_spam: 0 }
   const rows = db.prepare(
@@ -211,10 +221,16 @@ export function hygienePass(db: DatabaseSync): HygieneResult {
   const insV = db.prepare('INSERT OR IGNORE INTO cand_video(cid,aid,up_mid,ts) VALUES(?,?,?,?)')
   const stats = db.prepare('SELECT COUNT(DISTINCT aid) AS v, COUNT(DISTINCT up_mid) AS u FROM cand_video WHERE cid=?')
   for (const c of sorted) {
-    const host = keepers.find((k) =>
-      k.head.length >= 2 && c.head.length >= 2
-      && (k.head.includes(c.head) || c.head.includes(k.head))
-      && shared(k, c) * 2 >= Math.min(k.distinct_videos, c.distinct_videos))
+    const host = keepers.find((k) => {
+      if (k.head.length < 2 || c.head.length < 2) return false
+      if (!k.head.includes(c.head) && !c.head.includes(k.head)) return false
+      if (shared(k, c) * 2 < Math.min(k.distinct_videos, c.distinct_videos)) return false
+      // 被吸收方更长（c 包含 k）时，keeper 必须不是容器词：视频量远超被吸收方
+      // 说明它的高计数来自无关用法（"感觉"49 视频里只有 2 个含"感觉不如"），
+      // 吸收会把真梗藏进泛用噪音——保留双方，让短语自己积累证据触发。
+      if (k.head.length < c.head.length && k.distinct_videos > c.distinct_videos * CONTAINER_DV_RATIO) return false
+      return true
+    })
     if (!host) {
       keepers.push(c)
       continue

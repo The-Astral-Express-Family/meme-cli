@@ -1,6 +1,6 @@
 {
   "name": "dsh-meme",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "梗百科 deepseek-harness 插件——LLM 操作员驱动的梗采集（B站 surf 发现端）、归纳、检索与生命周期管理",
   "type": "module",
   "license": "MIT",

@@ -129,6 +129,20 @@ describe('包含族合并', () => {
     expect(candidates.byHead(env.db, '平平无')).toBeNull()
   })
 
+  it('容器词不吞长梗：keeper dv 超过被吸收方 8 倍时不合并，双方保留', async () => {
+    // 真网案例："感觉"(49dv 泛用容器) 曾把"感觉不如"(2dv, 鸣潮梗句式) 吸进
+    // 泛用噪音里。keeper 的高计数来自无关用法，不是同一表达的家族切片。
+    seedTwo(
+      '感觉', Array.from({ length: 20 }, (_, i) => i + 1),
+      Array.from({ length: 20 }, (_, i) => `感觉第${i}种完全不同的普通用法`),
+      '感觉不如', [1, 2], ['感觉不如鸣潮最新演示', '感觉不如 南孚聚能环'],
+    )
+    const res = candidates.hygienePass(env.db as unknown as DatabaseSync)
+    expect(res.merged, '容器词吸收了真梗短语').toBe(0)
+    expect(candidates.byHead(env.db, '感觉')).not.toBeNull()
+    expect(candidates.byHead(env.db, '感觉不如'), '真梗短语被泛用容器吞掉').not.toBeNull()
+  })
+
   it('无包含关系或视频不重合 → 不合并', async () => {
     seedTwo(
       '难绷', [21, 22, 23],

@@ -115,8 +115,12 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 **池卫生**（每轮信号更新末尾自愈）：同一句会被切出全粒度 gram 分身（"平平/平平无/无奇"），
 发现层用**非极大抑制**（某 gram ≥95% 的出现都紧贴同一相邻 token → 它是更长表达的冻结子串，
 不立户；计数按出现次数，叠用句"蚌埠住了蚌埠住了"不被假折叠）+ **包含族合并**（池内互为包含
-且视频重合 ≥50% 的候选并入 phrase_daily 终身计数更高的一方）+ **自推垃圾剪枝**（同一作者
-同一句跨 ≥2 视频的 phrase 切片删除；不同用户的相同短句是复读信号，不剪）。
+且视频重合 ≥50% 的候选并入 phrase_daily 终身计数更高的一方；**容器守卫**：keeper 视频量超过
+被吸收方 8 倍视为泛用容器——"感觉"(49dv) 不得吞掉恰好是它子串的真梗"感觉不如"(2dv)，改为
+双方保留）+ **自推垃圾剪枝**（同一作者同一句跨 ≥2 视频的 phrase 切片删除；不同用户的相同
+短句是复读信号，不剪）。候选是可从原始湖重建的派生状态：发现层规则修复后跑
+`npx tsx scripts/rebuild.ts --apply` 清空派生状态按湖重放（先不带 --apply 预览），让修复
+后的规则在全部历史证据上重新裁决。
 
 ## 行为要点
 
@@ -131,10 +135,11 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 
 ```sh
 npm install
-npm test                # 160 个离线测试（假 fetcher + 强制词法降级）
+npm test                # 161 个离线测试（假 fetcher + 强制词法降级）
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
+npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建真实库
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
 ```
 
