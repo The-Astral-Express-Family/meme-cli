@@ -1,6 +1,6 @@
 /** meme login：本地服务 + 标准扫码轮询协议（mock bilibili 侧，不打真网）。 */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runLogin } from '../src/login.ts'
@@ -86,4 +86,74 @@ describe('meme login', () => {
     expect(out.error).toContain('超时')
     rmSync(dir, { recursive: true, force: true })
   }, 10_000)
+
+  it('SESSDATA 只在 crossDomain 端点的 Set-Cookie 上（poll 与 URL 参数均无）→ 第三通道捕获', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'meme-login-'))
+    const credFile = join(dir, 'credentials.json')
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const u = String(url)
+      if (u.includes('127.0.0.1')) return realFetch(url, init)
+      if (u.includes('qrcode/generate')) {
+        return new Response(JSON.stringify({ code: 0, data: { url: 'https://x/scan', qrcode_key: 'K' } }), { status: 200 })
+      }
+      if (u.includes('qrcode/poll')) {
+        // 成功响应既无 Set-Cookie，crossDomain URL 也无 SESSDATA 参数
+        return new Response(JSON.stringify({ code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1' } }), { status: 200 })
+      }
+      if (u.includes('crossDomain')) {
+        return new Response(null, {
+          status: 302,
+          headers: { 'set-cookie': 'SESSDATA=sess-cross; Path=/; HttpOnly', 'location': 'https://www.bilibili.com/' },
+        })
+      }
+      if (u.includes('finger/spi')) {
+        return new Response(JSON.stringify({ code: 0, data: { b_3: 'buvid3-x' } }), { status: 200 })
+      }
+      if (u.includes('/nav')) {
+        return new Response(JSON.stringify({ code: 0, data: { isLogin: true, uname: '跨域用户', mid: 7 } }), { status: 200 })
+      }
+      throw new Error(`unexpected fetch: ${u}`)
+    }))
+    const out = await runLogin({
+      credentialsFile: credFile, timeoutMs: 15_000, openBrowser: false,
+      onReady: (url) => void driveScanPage(url),
+    })
+    expect(out.ok).toBe(true)
+    const creds = JSON.parse(readFileSync(credFile, 'utf8')) as Record<string, unknown>
+    expect(creds.sessdata).toBe('sess-cross')
+    expect(creds.buvid3).toBe('buvid3-x')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('登录确认成功但三通道均无 SESSDATA → ok=false、凭证不落盘（不假报成功）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'meme-login-'))
+    const credFile = join(dir, 'credentials.json')
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const u = String(url)
+      if (u.includes('127.0.0.1')) return realFetch(url, init)
+      if (u.includes('qrcode/generate')) {
+        return new Response(JSON.stringify({ code: 0, data: { url: 'https://x/scan', qrcode_key: 'K' } }), { status: 200 })
+      }
+      if (u.includes('qrcode/poll')) {
+        return new Response(JSON.stringify({ code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1' } }), { status: 200 })
+      }
+      if (u.includes('crossDomain')) {
+        return new Response(null, { status: 302, headers: { 'location': 'https://www.bilibili.com/' } }) // 无 Cookie
+      }
+      if (u.includes('finger/spi')) {
+        return new Response(JSON.stringify({ code: 0, data: { b_3: 'buvid3-x' } }), { status: 200 })
+      }
+      throw new Error(`unexpected fetch: ${u}`)
+    }))
+    const out = await runLogin({
+      credentialsFile: credFile, timeoutMs: 15_000, openBrowser: false,
+      onReady: (url) => void driveScanPage(url),
+    })
+    expect(out.ok).toBe(false)
+    expect(out.error).toContain('SESSDATA')
+    expect(existsSync(credFile)).toBe(false) // 硬守卫：凭证未落盘
+    rmSync(dir, { recursive: true, force: true })
+  })
 })

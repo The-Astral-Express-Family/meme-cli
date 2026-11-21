@@ -3,7 +3,8 @@
  *
  * 流程为 bilibili-API-collect 的标准 web QR 登录：
  *   generate → 渲染二维码（qrcode 包）→ 轮询 poll（86101 未扫/86090 待确认/
- *   86038 过期/0 成功）→ Set-Cookie + crossDomain URL 双路取凭证 →
+ *   86038 过期/0 成功）→ 三通道取凭证（poll Set-Cookie / crossDomain URL 参数 /
+ *   crossDomain 端点 Set-Cookie），抓不到 SESSDATA 即报错不落盘 →
  *   nav 验证登录身份 → 写 credentials 文件（surf 的 probe 通道与完整评论区用它）。
  */
 import { createServer, type Server } from 'node:http'
@@ -103,8 +104,19 @@ function startServer(credentialsFile: string, port: number | undefined, finish: 
             const body = await r.json() as { code: number; message: string; data?: { url?: string } }
             const code = body.code === 0 && body.data ? 0 : body.code
             if (code === 0) {
-              const merged = { ...fromCrossDomain(body.data?.url ?? ''), ...cookies }
+              const crossCookies = await harvestCrossDomain(body.data?.url ?? '')
+              const merged = mergeCookies(fromCrossDomain(body.data?.url ?? ''), cookies, crossCookies)
               const creds = await finalizeCredentials(merged)
+              if (!creds.sessdata) {
+                // 硬守卫：抓不到登录 Cookie 就不落盘、不假报成功——匿名 surf 会静默退化
+                const diag = `poll Set-Cookie=[${Object.keys(cookies).join(', ') || '无'}]`
+                  + ` crossDomain参数=${body.data?.url ? '有' : '无'}`
+                  + ` crossDomain Set-Cookie=[${Object.keys(crossCookies).join(', ') || '无'}]`
+                console.error(`meme login: SESSDATA 未捕获（${diag}）——请重新扫码重试`)
+                finish({ ok: false, error: '登录确认成功但未捕获到 SESSDATA（见服务端日志），凭证未保存' })
+                sendJson(res, 200, { code: -1, message: '登录握手未捕获到凭证，请重新扫码重试' })
+                return
+              }
               if (!saved) {
                 saved = true
                 saveCredentials(credentialsFile, creds)
@@ -148,10 +160,56 @@ function cookieJar(setCookies: string[]): Record<string, string> {
   const jar: Record<string, string> = {}
   for (const c of setCookies) {
     const [pair] = c.split(';')
-    const eq = pair.indexOf('=')
-    if (eq > 0) jar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim()
+    const eq = pair.indexOf('=') // 空 SESSDATA 不覆盖已有值
+    if (eq > 0) {
+      const k = pair.slice(0, eq).trim()
+      const v = pair.slice(eq + 1).trim()
+      if (v || !(k in jar)) jar[k] = v
+    }
   }
   return jar
+}
+
+/** 多通道凭证合并：空值永不覆盖，非空后者胜（同一次登录各通道值一致）。 */
+function mergeCookies(...sources: Array<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const src of sources) {
+    for (const [k, v] of Object.entries(src)) if (v) out[k] = v
+  }
+  return out
+}
+
+/** crossDomain 回跳端点的 Set-Cookie 兜底：部分登录响应只在 302 链上发 Cookie。逐跳收集（≤3 跳）。 */
+async function harvestCrossDomain(url: string): Promise<Record<string, string>> {
+  const jar: Record<string, string> = {}
+  if (!url) return jar
+  let current = url
+  try {
+    for (let hop = 0; hop < 3 && current; hop++) {
+      const r = await fetch(current, {
+        redirect: 'manual',
+        headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/' },
+      })
+      jarEntries(jar, r.headers.getSetCookie?.() ?? [])
+      const loc = r.headers.get('location')
+      if (r.status >= 300 && r.status < 400 && loc) {
+        current = new URL(loc, current).toString()
+      } else break
+    }
+  } catch { /* 兜底通道失败不致命 */ }
+  return jar
+}
+
+function jarEntries(jar: Record<string, string>, setCookies: string[]): void {
+  for (const c of setCookies) {
+    const [pair] = c.split(';')
+    const eq = pair.indexOf('=')
+    if (eq > 0) {
+      const k = pair.slice(0, eq).trim()
+      const v = pair.slice(eq + 1).trim()
+      if (v || !(k in jar)) jar[k] = v
+    }
+  }
 }
 
 /** crossDomain 回跳 URL 的查询参数兜底（部分客户端 Set-Cookie 不可见）。 */
