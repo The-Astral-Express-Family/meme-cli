@@ -123,7 +123,10 @@ describe('骨架通道', () => {
     const texts: string[] = []
     const aids: number[] = []
     for (let i = 0; i < 200; i++) { texts.push(`希望大家多多点赞支持${i}`); aids.push(950 + (i % 3)) }
+    // 专名用真实世界的变化句式（全冻结在同一模板里会被非极大抑制折叠进容器，
+    // 那是设计行为；真实评论的句式自然多变，专名以裸形式高频出现）
     for (let i = 0; i < 5; i++) { texts.push(`真是青铜巨像，第${i}个名场面`); aids.push(960 + (i % 2)) }
+    texts.push('青铜巨像又立功了', '名场面青铜巨像又来了'); aids.push(962, 963)
     seedComments(env.db, texts, aids, 1)
     await updateSignals(env.db, env.cfg, 1)
     expect(candidates.byHead(env.db, '青铜巨像'), '独特低频词被创建上限杀死').not.toBeNull()
@@ -148,7 +151,9 @@ describe('关联预计算', () => {
   })
 
   it('用例文本归属于各自的词头（回归：循环变量错位）', async () => {
-    const texts = ['我记下了', '我记下了', '我记下了', '结尾灵笼第二季真好看', '结尾灵笼第二季真好看', '结尾灵笼第二季真好看']
+    // 灵笼第二季用真实世界的变化句式（右邻 token 各不相同——全冻结在
+    // 同一句里会被非极大抑制折叠进更长表达，那是设计行为不是误杀）
+    const texts = ['我记下了', '我记下了', '我记下了', '结尾灵笼第二季真好看', '灵笼第二季更新了', '等灵笼第二季等好久了']
     seedComments(env.db, texts, [901, 902, 903, 911, 912, 913], 1)
     await updateSignals(env.db, env.cfg, 1)
     for (const head of ['我记下了', '灵笼第二季']) {

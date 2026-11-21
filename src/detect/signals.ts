@@ -17,7 +17,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
 import { kvGet } from '../db.ts'
 import type { ResolvedConfig } from '../config.ts'
-import { allActive, save as saveCand, upsertFromSignal, type VideoPair } from '../candidates.ts'
+import { allActive, hygienePass, save as saveCand, upsertFromSignal, type VideoPair } from '../candidates.ts'
 import type { Candidate } from '../models.ts'
 import { allMemes } from '../entries.ts'
 import { commentsForRound, titlesForRound, upMidMap } from '../lake.ts'
@@ -94,6 +94,10 @@ export interface SignalsResult {
   copy_candidates: number
   image_candidates: number
   triggered: string[]
+  /** 池卫生：包含族合并数。 */
+  merged: number
+  /** 池卫生：纯复制粘贴切片剪枝数。 */
+  pruned_spam: number
 }
 
 /** 一轮信号更新的共享上下文。 */
@@ -104,10 +108,10 @@ interface Ctx {
   upMap: Map<number, number>
   embedder: Embedder
   res: SignalsResult
-  /** 轮内短语计数（后缀族与既有候选合流共用）。 */
+  /** 轮内短语计数（后缀族与既有候选合流共用；按出现次数计——叠用句各记一次）。 */
   phCnt: Map<string, number>
   phVideos: Map<string, Set<number>>
-  perComment: Array<[Unit, string[]]>
+  perComment: Array<[Unit, ReturnType<typeof ngram.gramSpans>]>
 }
 
 interface Unit {
@@ -273,7 +277,7 @@ async function pump(ctx: Ctx, cand: Candidate): Promise<void> {
 export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, roundId: number): Promise<SignalsResult> {
   const res: SignalsResult = {
     scanned: 0, phrase_candidates: 0, skeleton_candidates: 0,
-    copy_candidates: 0, image_candidates: 0, triggered: [],
+    copy_candidates: 0, image_candidates: 0, triggered: [], merged: 0, pruned_spam: 0,
   }
   const comments = commentsForRound(db, roundId)
   const units = collectUnits(comments)
@@ -285,27 +289,35 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
       mid: 0, ctime: t.pubdate, chain: false, weight: TITLE_WEIGHT,
     })
   }
-  if (!units.length) return res
+  if (!units.length) {
+    const hyg = hygienePass(db) // 空轮也自愈：--no-fetch 的存量轮照常清池
+    res.merged = hyg.merged
+    res.pruned_spam = hyg.pruned_spam
+    return res
+  }
   res.scanned = units.length
   const ctx: Ctx = {
     db, roundId, day: todayIso(), upMap: upMidMap(db),
     embedder: getEmbedder(cfg.retrieval.embed_model), res,
     phCnt: new Map(), phVideos: new Map(), perComment: [],
   }
-  // 分词一次，多处复用（短语通道 / 后缀族 / 既有候选合流）
+  // 分词一次，多处复用（短语通道 / 后缀族 / 既有候选合流）；span 保留重复位置
   for (const u of units) {
-    const msgPhrases = ngram.phrases(u.text)
-    ctx.perComment.push([u, msgPhrases])
-    for (const ph of msgPhrases) {
-      ctx.phCnt.set(ph, (ctx.phCnt.get(ph) ?? 0) + u.weight)
-      if (!ctx.phVideos.has(ph)) ctx.phVideos.set(ph, new Set())
-      ctx.phVideos.get(ph)!.add(u.aid)
+    const gs = ngram.gramSpans(u.text)
+    ctx.perComment.push([u, gs])
+    for (const s of gs.spans) {
+      ctx.phCnt.set(s.text, (ctx.phCnt.get(s.text) ?? 0) + u.weight)
+      if (!ctx.phVideos.has(s.text)) ctx.phVideos.set(s.text, new Set())
+      ctx.phVideos.get(s.text)!.add(u.aid)
     }
   }
   await phraseChannel(ctx, genericSet(db, cfg))
   await copyChannel(ctx)
   await skeletonChannel(ctx)
   await imageChannel(ctx)
+  const hyg = hygienePass(db)
+  res.merged = hyg.merged
+  res.pruned_spam = hyg.pruned_spam
   return res
 }
 
@@ -314,10 +326,10 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
 async function phraseChannel(ctx: Ctx, generic: Set<string>): Promise<void> {
   const { db, roundId, res } = ctx
   const phDocs = new Map<string, Set<number>>()
-  for (const [u, msgPhrases] of ctx.perComment) {
-    for (const ph of msgPhrases) {
-      if (!phDocs.has(ph)) phDocs.set(ph, new Set())
-      phDocs.get(ph)!.add(u.rpid)
+  for (const [u, gs] of ctx.perComment) {
+    for (const s of gs.spans) {
+      if (!phDocs.has(s.text)) phDocs.set(s.text, new Set())
+      phDocs.get(s.text)!.add(u.rpid)
     }
   }
   const n = ctx.perComment.length
@@ -341,19 +353,55 @@ async function phraseChannel(ctx: Ctx, generic: Set<string>): Promise<void> {
       base.push(p)
     }
   }
-  // 注：不做同句 gram 折叠——复读句的子 gram 会入榜，但 head 感知的证据评分
-  // （copy_pairs 只算近似独立成评的复读）使它们梗证分 ≈ 0 自然沉底；
-  // 折叠曾误杀"绷"（叠用句）与"灵笼第二季"（子短语）。
-  const rankedSet = new Set(base)
-  const phUsages = new Map<string, UsageSample[]>()
-  for (const [u, msgPhrases] of ctx.perComment) {
-    for (const ph of msgPhrases) {
-      if (!rankedSet.has(ph)) continue
-      if (!phUsages.has(ph)) phUsages.set(ph, [])
-      if (phUsages.get(ph)!.length < 6) phUsages.get(ph)!.push(usageOf(u))
+  // ---- 非极大短语抑制（计数证据，不是结构折叠——上次按 span 一刀切的折叠曾
+  // 误杀叠用句"绷"与子短语"灵笼第二季"）。G 的某单 token 扩展 gram 计数
+  // ≥ 0.95×G 自身 → G 几乎从不出现在该更长表达之外，属冻结子串，不立户，
+  // 证据由扩展携带。计数按出现次数（gramSpans 保留重复位置）——
+  // "蚌埠住了蚌埠住了"里 G×2 vs 扩展×1，比率 0.5，叠用句不被假折叠；
+  // "绷"（绷不住/绷了/绷散布多变体）最大扩展占比 <0.95，照常立户。
+  const extRight = new Map<string, Map<string, number>>()
+  const extLeft = new Map<string, Map<string, number>>()
+  for (const [u, gs] of ctx.perComment) {
+    for (const s of gs.spans) {
+      // 扩展必须同段：gram 不跨标点，跨段"扩展"是从不存在的 gram，会把
+      // 模板句（"评论{i}：典中典，太典了"）里所有段内 gram 全部假抑制
+      const fits = (t: string): boolean =>
+        s.end - s.start + 2 <= ngram.GRAM_MAX_TOKENS && s.text.length + t.length <= ngram.GRAM_MAX_CHARS
+      if (s.end + 1 < gs.tokens.length && gs.segOf[s.end + 1] === gs.segOf[s.end] && fits(gs.tokens[s.end + 1])) {
+        const t = gs.tokens[s.end + 1]
+        const m = extRight.get(s.text) ?? new Map()
+        m.set(t, (m.get(t) ?? 0) + u.weight)
+        extRight.set(s.text, m)
+      }
+      if (s.start > 0 && gs.segOf[s.start - 1] === gs.segOf[s.start] && fits(gs.tokens[s.start - 1])) {
+        const t = gs.tokens[s.start - 1]
+        const m = extLeft.get(s.text) ?? new Map()
+        m.set(t, (m.get(t) ?? 0) + u.weight)
+        extLeft.set(s.text, m)
+      }
     }
   }
-  for (const ph of base) {
+  const SUPPRESS_RATIO = 0.95
+  const suppressed = new Set<string>()
+  for (const p of base) {
+    let maxExt = 0
+    for (const m of [extRight.get(p), extLeft.get(p)]) {
+      if (!m) continue
+      for (const v of m.values()) if (v > maxExt) maxExt = v
+    }
+    if (maxExt >= (ctx.phCnt.get(p) ?? 0) * SUPPRESS_RATIO) suppressed.add(p)
+  }
+  const creating = base.filter((p) => !suppressed.has(p))
+  const rankedSet = new Set(creating)
+  const phUsages = new Map<string, UsageSample[]>()
+  for (const [u, gs] of ctx.perComment) {
+    for (const s of gs.spans) {
+      if (!rankedSet.has(s.text)) continue
+      if (!phUsages.has(s.text)) phUsages.set(s.text, [])
+      if (phUsages.get(s.text)!.length < 6) phUsages.get(s.text)!.push(usageOf(u))
+    }
+  }
+  for (const ph of creating) {
     const cand = upsertFromSignal(db, {
       head: ph, channel: 'phrase', kind_guess: 'word',
       usages: phUsages.get(ph) ?? [], video_pairs: pairsOf(ctx, ctx.phVideos.get(ph) ?? []),
@@ -363,7 +411,7 @@ async function phraseChannel(ctx: Ctx, generic: Set<string>): Promise<void> {
     res.phrase_candidates += 1
   }
   // 短语总账：全部短语进日聚合（后缀家族检测的账本——族员常单轮低频，
-  // 不入榜也要留痕，否则 "X麻了" 家族永远凑不齐 3 人）
+  // 不入榜也要留痕，否则 "X麻了" 家族永远凑不齐 3 人）；被抑制的冻结子串照常留痕
   for (const [ph, cnt] of ctx.phCnt) {
     bumpDaily(ctx, 'phrase_daily', ph, cnt, ctx.phVideos.get(ph)?.size ?? 0)
   }
@@ -375,8 +423,8 @@ async function phraseChannel(ctx: Ctx, generic: Set<string>): Promise<void> {
 function reopenExisting(ctx: Ctx, generic: Set<string>): void {
   const seenHeads = new Set<string>()
   const existingByHead = new Map(allActive(ctx.db).map((c) => [c.head, c] as const))
-  for (const [u, msgPhrases] of ctx.perComment) {
-    for (const ph of msgPhrases) {
+  for (const [u, gs] of ctx.perComment) {
+    for (const ph of new Set(gs.spans.map((s) => s.text))) {
       if (seenHeads.has(ph) || generic.has(ph)) continue
       const cand = existingByHead.get(ph)
       if (!cand || cand.channel !== 'phrase' || cand.last_round === ctx.roundId) continue
@@ -432,8 +480,8 @@ async function suffixFamilies(ctx: Ctx): Promise<void> {
   const famUsages = new Map<string, UsageSample[]>()
   const endFinal = new Map<string, number>()
   const famPhraseSet = new Set([...firing].flatMap((s) => [...famBySuf.get(s)!]))
-  for (const [u, msgPhrases] of ctx.perComment) {
-    const hitSufs = new Set(msgPhrases.filter((p) => famPhraseSet.has(p)).map((p) => p.slice(-2)))
+  for (const [u, gs] of ctx.perComment) {
+    const hitSufs = new Set(gs.spans.filter((s) => famPhraseSet.has(s.text)).map((s) => s.text.slice(-2)))
     if (!hitSufs.size) continue
     const sample = usageOf(u)
     const tail = u.text.trimEnd().slice(-3)
