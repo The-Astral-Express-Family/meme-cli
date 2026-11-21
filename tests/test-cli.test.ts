@@ -296,6 +296,78 @@ describe('config', () => {
   })
 })
 
+// ---- auth ----
+
+const credFile = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'meme-auth-'))
+  return join(dir, 'credentials.json')
+}
+
+describe('auth', () => {
+  it('status 无凭证文件：未登录、不发网络请求，payload 带扫码引导', async () => {
+    const file = credFile()
+    const out = await COMMANDS.auth.run({ _: ['status'], flags: { credentials: file } }, rt)
+    const pl = out.payload as Record<string, unknown>
+    expect(pl.file_exists).toBe(false)
+    expect(pl.valid).toBeNull()
+    expect(pl.suggestion).toContain('meme auth login')
+    expect(out.human).toContain('未登录')
+  })
+
+  it('status 凭证有效（nav 实测 isLogin）：valid=true + 账号信息', async () => {
+    const file = credFile()
+    writeFileSync(file, JSON.stringify({ sessdata: 'sess-live', saved_at: '2026-11-21T10:00:00' }), 'utf8')
+    const realFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      if (!String(url).includes('/nav')) throw new Error(`unexpected fetch: ${url}`)
+      return new Response(JSON.stringify({ code: 0, data: { isLogin: true, uname: '测试用户', mid: 42 } }), { status: 200 })
+    }))
+    try {
+      const out = await COMMANDS.auth.run({ _: ['status'], flags: { credentials: file } }, rt)
+      const pl = out.payload as Record<string, unknown>
+      expect(pl.valid).toBe(true)
+      expect(pl.uname).toBe('测试用户')
+      expect(pl.mid).toBe(42)
+      expect(out.human).toContain('已登录')
+    } finally {
+      vi.unstubAllGlobals()
+      void realFetch
+      rmSync(file, { force: true })
+    }
+  })
+
+  it('status 凭证过期（nav -101）：valid=false 引导重扫', async () => {
+    const file = credFile()
+    writeFileSync(file, JSON.stringify({ sessdata: 'sess-dead' }), 'utf8')
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({ code: -101, message: '账号未登录', data: { isLogin: false } }), { status: 200 })))
+    try {
+      const out = await COMMANDS.auth.run({ _: ['status'], flags: { credentials: file } }, rt)
+      expect((out.payload as Record<string, unknown>).valid).toBe(false)
+      expect(out.human).toContain('失效')
+    } finally {
+      vi.unstubAllGlobals()
+      rmSync(file, { force: true })
+    }
+  })
+
+  it('logout：删凭证文件；无文件时幂等 removed=false', async () => {
+    const file = credFile()
+    writeFileSync(file, JSON.stringify({ sessdata: 'x' }), 'utf8')
+    const out = await COMMANDS.auth.run({ _: ['logout'], flags: { credentials: file } }, rt)
+    expect((out.payload as Record<string, unknown>).removed).toBe(true)
+    expect(existsSync(file)).toBe(false)
+    const out2 = await COMMANDS.auth.run({ _: ['logout'], flags: { credentials: file } }, rt)
+    expect((out2.payload as Record<string, unknown>).removed).toBe(false)
+    rmSync(file, { force: true })
+  })
+
+  it('未知动作 / 缺动作 → UsageError', async () => {
+    await expect(COMMANDS.auth.run({ _: ['whoami'], flags: {} }, rt)).rejects.toBeInstanceOf(UsageError)
+    await expect(COMMANDS.auth.run({ _: [], flags: {} }, rt)).rejects.toBeInstanceOf(UsageError)
+  })
+})
+
 // ---- shim ----
 
 describe('shim（prompt-only 插件）', () => {

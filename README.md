@@ -18,7 +18,7 @@
 
 | 面 | 入口 | 作用 |
 | --- | --- | --- |
-| **CLI**（操作面） | `bin` 的 `meme`（`lib/cli.js`） | 9 组子命令，stdout = 单行 JSON（agent 消费），stderr = 人读文本；业务失败 exit 1 且 stdout 仍有 `{"error":{"code","message","suggestion",...}}`，用法错误 exit 2 |
+| **CLI**（操作面） | `bin` 的 `meme`（`lib/cli.js`） | 10 组子命令，stdout = 单行 JSON（agent 消费），stderr = 人读文本；业务失败 exit 1 且 stdout 仍有 `{"error":{"code","message","suggestion",...}}`，用法错误 exit 2 |
 | **shim**（插件面，prompt-only） | `lib/index.js`，`inject: ['skills', 'shellEnv']` | ① `ctx.skills.register` 注册 meme 技能——**未激活形态只有技能目录里的一行**（81 字符 ≈ 57 tokens 常驻）；模型经 `skill` 工具按需展开全文（≈2.2k tokens，会话瞬态不常驻），**用户消息首行 `/meme` 也是确定性加载手势**；② shellEnv 注入 `DSH_MEME_NODE`（harness 进程的 node）与 `DSH_MEME_BIN`（cli.js 绝对路径）——harness 不给 agent shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道 |
 
 agent 调用样板（先 `skill meme` 展开手册，之后自会使用）：
@@ -54,16 +54,18 @@ npm i -g dsh-meme
 | `meme surf` | 一轮 B站获取 + 证据更新 + 四区呈现（数分钟；调用方给足 timeout 或 run_in_background） |
 | `meme note add\|list\|show\|edit\|rm` | 笔记增删改查（低信任附着物，永不进 matcher/card） |
 | `meme config init` | 写出 `~/.meme/config.json` 模板 |
-| `meme login` | 弹出浏览器扫码登录 B站（交互命令，人读输出） |
+| `meme auth <action>` | 登录态管理（仿 gh auth）：`login` 弹浏览器扫码；`status` 查登录态（凭证存在性 + nav 实测）；`logout` 删除登录态 |
 
 每个子命令 `--help` 可查详情。entry 走文件通道（agent 先写临时 JSON 文件再 `--entry-file <绝对路径>`），绕开 shell 引号问题。
 
-## 登录（meme login）
+## 登录（meme auth）
 
 搜索探测（surf 的 probe）与完整评论区需要 B站登录态。用户在终端跑一次：
 
 ```sh
-meme login          # 弹出浏览器扫码页；成功后写 ~/.meme/credentials.json
+meme auth status    # 查登录态：凭证存在性 + nav 实测有效性（未登录时给扫码引导）
+meme auth login     # 弹出浏览器扫码页；成功后写 ~/.meme/credentials.json
+meme auth logout    # 删除登录态（换账号用）
 ```
 
 标准扫码登录流（bilibili-API-collect 的 web QR 协议）：本地起一次性回调页 → App 扫码 →
@@ -133,6 +135,6 @@ npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接
 ## 已知边界（v0.5）
 
 - 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载；离线时向量层降级为纯词法。
-- B站搜索接口需登录态（`meme login`），匿名时探测通道自动跳过。
+- B站搜索接口需登录态（`meme auth login`），匿名时探测通道自动跳过；`meme auth status` 可先查状态。
 - 图梗只发现（pHash 簇）不识图——理解留给操作员看图判断（surf --focus 会列出候选的来源视频与用例）。
 - 收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM；闸门（JSON 校验 / matcher 编译 / backtest）全本地。

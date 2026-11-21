@@ -105,11 +105,10 @@ export function topUsage(specs: CmdSpec[], version: string): string {
     lines.push(`  ${spec.name.padEnd(10)}${spec.desc}`)
   }
   lines.push(
-    '  login      弹出浏览器扫码登录 B站（写 ~/.meme/credentials.json）',
     '',
     '约定：stdout = 单行 JSON（结构化结果）；stderr = 人读文本；',
     '      业务失败 exit 1 且 stdout 有 {"error":{"code","message",...}}；用法错误 exit 2。',
-    '配置：~/.meme/config.json；登录态：meme login 写 ~/.meme/credentials.json。',
+    '配置：~/.meme/config.json；登录态：meme auth login 写 ~/.meme/credentials.json，meme auth status 查状态。',
   )
   return lines.join('\n')
 }

@@ -3,8 +3,9 @@
  * 输出契约：run() 返回 { payload, human }——payload 上 stdout（单行 JSON），
  * human 上 stderr（人读文本）。领域错误以 MemeError 抛出，main 统一转 JSON。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { confirmRevival, get as getMeme, resolve } from '../entries.ts'
 import { MemeError, notFound } from '../errors.ts'
 import type { Json } from '../models.ts'
@@ -19,6 +20,7 @@ import * as entries from '../entries.ts'
 import * as notes from '../notes.ts'
 import * as lifecycle from '../lifecycle.ts'
 import { configTemplate, configFile } from '../config.ts'
+import { checkAuthStatus, runLogin } from '../login.ts'
 import { handleAllow, handleReject, runSurf } from '../surf/run.ts'
 import type { CmdSpec, Parsed } from './parser.ts'
 import { UsageError } from './parser.ts'
@@ -361,6 +363,64 @@ async function runConfig(p: Parsed, _rt: Runtime): Promise<CmdOut> {
   return { payload: { written: file }, human: `已写出配置模板：${file}（字段全默认，按需改 db_path/fetch/backtest 等）` }
 }
 
+// ---- auth（仿 gh auth：login/status/logout） ----
+
+async function runAuth(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  const action = p._[0] ?? ''
+  const credentials = s(p, 'credentials') ?? rt.cfg.credentialsFile
+  if (action === 'login') {
+    const out = await runLogin({
+      credentialsFile: credentials,
+      port: n(p, 'port'),
+      timeoutMs: n(p, 'timeout') !== undefined ? n(p, 'timeout')! * 1000 : undefined,
+      openBrowser: !b(p, 'no-browser'),
+    })
+    if (!out.ok) {
+      throw new MemeError('MEME_AUTH_FAILED', out.error ?? '登录失败', '重新运行 meme auth login 扫码；二维码 180s 有效，超时自动换新。')
+    }
+    return {
+      payload: { ok: true, uname: out.uname ?? null, mid: out.mid ?? null, credentials_file: credentials },
+      human: `登录成功：${out.uname ?? '未知用户'}${out.mid ? ` (uid ${out.mid})` : ''}——surf 的 probe 探测与完整评论区已解锁`,
+    }
+  }
+  if (action === 'status') {
+    const st = await checkAuthStatus(credentials)
+    let human: string
+    if (st.valid === true) {
+      const days = st.saved_at ? Math.max(0, Math.floor((Date.now() - new Date(st.saved_at).getTime()) / 86400_000)) : null
+      human = `✓ 已登录：${st.uname ?? '未知用户'}${st.mid ? ` (uid ${st.mid})` : ''}——凭证有效`
+        + (days !== null ? `（保存于 ${days === 0 ? '今天' : `${days} 天前`}）` : '')
+        + '；probe 探测/完整评论区/feed 可用'
+    } else if (st.valid === false) {
+      human = `✗ 登录态已失效——${st.note}。请在终端跑 meme auth login 重新扫码`
+    } else {
+      human = `✗ 未登录（${st.note}）——B站获取将匿名降级（无搜索探测、评论区不全）。请在终端跑 meme auth login 扫码`
+    }
+    const payload: Record<string, Json> = {
+      credentials_file: st.credentials_file,
+      file_exists: st.file_exists,
+      sessdata_present: st.sessdata_present,
+      valid: st.valid,
+      uname: st.uname ?? null,
+      mid: st.mid ?? null,
+      saved_at: st.saved_at ?? null,
+      note: st.note ?? null,
+    }
+    if (st.valid !== true) {
+      payload.suggestion = '请用户在终端跑 meme auth login 扫码；之后用 meme auth status 确认'
+    }
+    return { payload, human }
+  }
+  if (action === 'logout') {
+    if (!existsSync(credentials)) {
+      return { payload: { removed: false, credentials_file: credentials }, human: '本就未登录（无凭证文件）' }
+    }
+    unlinkSync(credentials)
+    return { payload: { removed: true, credentials_file: credentials }, human: `已删除登录态：${credentials}` }
+  }
+  throw new UsageError(`未知 auth 动作 "${action || '(空)'}"：login|status|logout`)
+}
+
 // ---- 命令表 ----
 
 export const COMMANDS: Record<string, CmdDef> = {
@@ -467,5 +527,17 @@ export const COMMANDS: Record<string, CmdDef> = {
     desc: '配置管理：init 写出 ~/.meme/config.json 模板（全默认值展开）',
     opts: {},
     run: runConfig,
+  },
+  auth: {
+    name: 'auth',
+    args: '<action>',
+    desc: 'B站登录态管理（仿 gh auth）：login 弹浏览器扫码；status 查登录态（凭证存在性 + nav 实测有效性，surf 前先查）；logout 删除登录态',
+    opts: {
+      credentials: { type: 'string', desc: '凭证文件路径（默认 ~/.meme/credentials.json）' },
+      port: { type: 'number', desc: 'login：本地回调页端口（默认随机）' },
+      timeout: { type: 'number', desc: 'login：等待扫码超时秒数（默认 180）' },
+      'no-browser': { type: 'boolean', desc: 'login：不自动弹浏览器（手动访问打印出的地址）' },
+    },
+    run: runAuth,
   },
 }

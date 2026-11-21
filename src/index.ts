@@ -44,7 +44,7 @@ const MANUAL = `# meme —— 梗百科（CLI）
 - MEME_BACKTEST_FAIL 是修订反馈不是故障：按 error 附带的漏报/误报样例改 matcher 再交；确要跳过加 --force
 - 泛用词（"不行/决赛"）允许入榜但梗证分≈0 自动沉底永不触发——不需要手动 reject；--reject 只用于真噪音
 - 释义实质变化会被 iterate 自动记 drift，无需手动补
-- surf 全部数据源失败会自动降级为存量模式（正常行为）；probe 探测/完整评论区需要登录态：请用户在终端跑 meme login
+- surf 全部数据源失败会自动降级为存量模式（正常行为）；probe 探测/完整评论区需要登录态：先 auth status 查状态，未登录请用户在终端跑 meme auth login 扫码
 - 笔记（note）是低信任区：疑点先 note add --head <词头> 不建词条，证据够了再 add
 - add/iterate 只收 entry 文件——归纳由你（操作员）亲写，没有外部归纳器；写前先取证（surf --focus <cid> 看候选完整证据，show --level full 看词条全量），--cid 把候选用例并入 backtest 正例并收口候选
 

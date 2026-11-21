@@ -9,15 +9,14 @@
  */
 import { createServer, type Server } from 'node:http'
 import { exec } from 'node:child_process'
-import { mkdirSync, writeFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { dirname } from 'node:path'
 import QRCode from 'qrcode'
 import { nowIso } from './models.ts'
+import { UA } from './fetch/http.ts'
+import type { BiliCredentials } from './config.ts'
 
 const PASSPORT = 'https://passport.bilibili.com'
-const UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-  + '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
 interface LoginOutcome {
   ok: boolean
@@ -47,7 +46,7 @@ export async function runLogin(opts: LoginOptions): Promise<LoginOutcome> {
     outcome = o
   })
   const url = `http://127.0.0.1:${server.port}/`
-  console.log(`meme login: 浏览器未自动打开时，请手动访问 ${url}`)
+  console.error(`meme auth login: 浏览器未自动打开时，请手动访问 ${url}`)
   opts.onReady?.(url)
   if (opts.openBrowser !== false) openInBrowser(url)
 
@@ -272,6 +271,70 @@ function pollMessage(code: number): string {
   if (code === 86090) return '已扫码，请在手机上确认'
   if (code === 86038) return '二维码已过期，正在刷新'
   return `code=${code}`
+}
+
+/** 登录状态（meme auth status 的检查结果）。 */
+export interface AuthStatus {
+  credentials_file: string
+  file_exists: boolean
+  sessdata_present: boolean
+  /** nav 实测登录有效性；null = 无法验证（无凭证可验/网络/接口异常）。 */
+  valid: boolean | null
+  uname?: string
+  mid?: number
+  saved_at?: string
+  /** 人工可读的补充说明（进 stderr）。 */
+  note?: string
+}
+
+/** 登录状态检查（仿 gh auth status）：凭证文件存在性 + SESSDATA 有无 + nav 实测有效性。 */
+export async function checkAuthStatus(credentialsFile: string): Promise<AuthStatus> {
+  if (!existsSync(credentialsFile)) {
+    return { credentials_file: credentialsFile, file_exists: false, sessdata_present: false, valid: null, note: '无凭证文件（未登录）' }
+  }
+  let creds: BiliCredentials
+  try {
+    creds = JSON.parse(readFileSync(credentialsFile, 'utf8')) as BiliCredentials
+  } catch (e) {
+    return {
+      credentials_file: credentialsFile, file_exists: true, sessdata_present: false, valid: null,
+      note: `凭证文件损坏（无法解析：${e instanceof Error ? e.message : e}），请 logout 后重新 login`,
+    }
+  }
+  const sessdata = typeof creds.sessdata === 'string' ? creds.sessdata : ''
+  if (!sessdata) {
+    return {
+      credentials_file: credentialsFile, file_exists: true, sessdata_present: false, valid: null,
+      saved_at: creds.saved_at, note: '凭证文件缺少 SESSDATA（登录握手未捕获），请 logout 后重新 login',
+    }
+  }
+  try {
+    const r = await fetch('https://api.bilibili.com/x/web-interface/nav', {
+      headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/', Cookie: `SESSDATA=${sessdata}` },
+    })
+    const body = await r.json() as { code?: number; data?: { isLogin?: boolean; uname?: string; mid?: number } }
+    if (body.data?.isLogin) {
+      return {
+        credentials_file: credentialsFile, file_exists: true, sessdata_present: true, valid: true,
+        uname: body.data.uname, mid: body.data.mid, saved_at: creds.saved_at,
+      }
+    }
+    if (body.code === -101) {
+      return {
+        credentials_file: credentialsFile, file_exists: true, sessdata_present: true, valid: false,
+        saved_at: creds.saved_at, note: 'nav 实测未登录（凭证过期或无效）——请 logout 后重新 login',
+      }
+    }
+    return {
+      credentials_file: credentialsFile, file_exists: true, sessdata_present: true, valid: null,
+      saved_at: creds.saved_at, note: `nav 返回 code=${body.code}，有效性未知`,
+    }
+  } catch (e) {
+    return {
+      credentials_file: credentialsFile, file_exists: true, sessdata_present: true, valid: null,
+      saved_at: creds.saved_at, note: `nav 验证失败（${e instanceof Error ? e.message : e}），surf 将按现有凭证尝试`,
+    }
+  }
 }
 
 function saveCredentials(file: string, creds: unknown): void {

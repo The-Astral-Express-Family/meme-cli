@@ -256,7 +256,7 @@ export async function runFetch(
   const session = new BiliSession(cfg.delay_min, cfg.delay_max, cfg.timeout, sessdata, signal)
   const videos = await collectVideos(session, res, cfg, db)
   if ((probeExtra.length || cfg.probe_keywords) && !sessdata) {
-    console.error('meme: fetch: 搜索探测需要登录态（运行 meme login），本轮跳过')
+    console.error('meme: fetch: 搜索探测需要登录态（运行 meme auth login），本轮跳过')
   }
   if (sessdata && (probeExtra.length || cfg.probe_keywords)) {
     // 搜索探测：登录态搜索关键词，定位承载梗浪的视频。定向词全量探测；热词按预算截断
