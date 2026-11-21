@@ -210,6 +210,8 @@ export interface BiliCredentials {
   bili_jct?: string
   dede_user_id?: string
   buvid3?: string
+  /** Cookie 刷新用的票据（后续做会话续期用）。 */
+  refresh_token?: string
   mid?: number
   uname?: string
   saved_at: string

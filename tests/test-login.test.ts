@@ -34,10 +34,17 @@ describe('meme login', () => {
       if (u.includes('qrcode/poll')) {
         pollCount += 1
         if (pollCount < 2) {
-          return new Response(JSON.stringify({ code: 86101, message: '未扫码' }), { status: 200 })
+          // 真实形状：顶层 code 恒为 0，扫码状态在 data.code——首轮 86101 不得误判成功
+          return new Response(JSON.stringify({
+            code: 0, data: { url: '', refresh_token: '', timestamp: 0, code: 86101, message: '未扫码' },
+          }), { status: 200 })
         }
         return new Response(JSON.stringify({
-          code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?DedeUserID=42&SESSDATA=sess-xyz&bili_jct=jct-1' },
+          code: 0,
+          data: {
+            url: 'https://passport.bilibili.com/crossDomain?DedeUserID=42&SESSDATA=sess-xyz&bili_jct=jct-1',
+            refresh_token: 'rt-1', timestamp: 1662363009601, code: 0, message: '',
+          },
         }), {
           status: 200,
           headers: { 'set-cookie': 'SESSDATA=sess-xyz; Path=/; HttpOnly, bili_jct=jct-1; Path=/, DedeUserID=42; Path=/' },
@@ -65,6 +72,7 @@ describe('meme login', () => {
     expect(creds.bili_jct).toBe('jct-1')
     expect(creds.dede_user_id).toBe('42')
     expect(creds.buvid3).toBe('buvid3-xxx')
+    expect(creds.refresh_token).toBe('rt-1')
     expect(creds.uname).toBe('测试用户')
     expect(pollCount).toBe(2)
     rmSync(dir, { recursive: true, force: true })
@@ -98,8 +106,10 @@ describe('meme login', () => {
         return new Response(JSON.stringify({ code: 0, data: { url: 'https://x/scan', qrcode_key: 'K' } }), { status: 200 })
       }
       if (u.includes('qrcode/poll')) {
-        // 成功响应既无 Set-Cookie，crossDomain URL 也无 SESSDATA 参数
-        return new Response(JSON.stringify({ code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1' } }), { status: 200 })
+        // 成功响应既无 Set-Cookie，crossDomain URL 也无 SESSDATA 参数（2026-08 票据新格式）
+        return new Response(JSON.stringify({
+          code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1', refresh_token: 'rt-2', code: 0 },
+        }), { status: 200 })
       }
       if (u.includes('crossDomain')) {
         return new Response(null, {
@@ -137,7 +147,9 @@ describe('meme login', () => {
         return new Response(JSON.stringify({ code: 0, data: { url: 'https://x/scan', qrcode_key: 'K' } }), { status: 200 })
       }
       if (u.includes('qrcode/poll')) {
-        return new Response(JSON.stringify({ code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1' } }), { status: 200 })
+        return new Response(JSON.stringify({
+          code: 0, data: { url: 'https://passport.bilibili.com/crossDomain?sid=s1', code: 0 },
+        }), { status: 200 })
       }
       if (u.includes('crossDomain')) {
         return new Response(null, { status: 302, headers: { 'location': 'https://www.bilibili.com/' } }) // 无 Cookie

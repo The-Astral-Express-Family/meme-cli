@@ -101,12 +101,17 @@ function startServer(credentialsFile: string, port: number | undefined, finish: 
               headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/' },
             })
             const cookies = cookieJar(r.headers.getSetCookie?.() ?? [])
-            const body = await r.json() as { code: number; message: string; data?: { url?: string } }
-            const code = body.code === 0 && body.data ? 0 : body.code
-            if (code === 0) {
+            const body = await r.json() as {
+              code: number; message: string
+              data?: { url?: string; refresh_token?: string; code?: number; message?: string }
+            }
+            // 扫码状态在 data.code（86101 未扫/86090 已扫未确认/86038 过期/0 成功）；
+            // 顶层 code 对所有状态恒为 0——拿顶层判断会把首轮轮询误判成登录成功
+            const state = body?.data?.code ?? body?.code ?? -1
+            if (body.code === 0 && state === 0) {
               const crossCookies = await harvestCrossDomain(body.data?.url ?? '')
               const merged = mergeCookies(fromCrossDomain(body.data?.url ?? ''), cookies, crossCookies)
-              const creds = await finalizeCredentials(merged)
+              const creds = await finalizeCredentials(merged, body.data?.refresh_token)
               if (!creds.sessdata) {
                 // 硬守卫：抓不到登录 Cookie 就不落盘、不假报成功——匿名 surf 会静默退化
                 const diag = `poll Set-Cookie=[${Object.keys(cookies).join(', ') || '无'}]`
@@ -125,7 +130,7 @@ function startServer(credentialsFile: string, port: number | undefined, finish: 
               sendJson(res, 200, { code: 0, message: '登录成功', uname: creds.uname, mid: creds.mid })
               return
             }
-            sendJson(res, 200, { code, message: pollMessage(code) })
+            sendJson(res, 200, { code: state, message: pollMessage(state) })
           } catch (e) {
             sendJson(res, 502, { code: -1, message: String(e) })
           }
@@ -179,7 +184,8 @@ function mergeCookies(...sources: Array<Record<string, string>>): Record<string,
   return out
 }
 
-/** crossDomain 回跳端点的 Set-Cookie 兜底：部分登录响应只在 302 链上发 Cookie。逐跳收集（≤3 跳）。 */
+/** crossDomain 回跳端点的 Set-Cookie 兜底：2026-08 改版后 data.url 是纯票据链接，
+ * 真登录 Cookie 只在带浏览器 UA 跟随时由其响应下发。逐跳收集（≤3 跳）。 */
 async function harvestCrossDomain(url: string): Promise<Record<string, string>> {
   const jar: Record<string, string> = {}
   if (!url) return jar
@@ -188,7 +194,7 @@ async function harvestCrossDomain(url: string): Promise<Record<string, string>> 
     for (let hop = 0; hop < 3 && current; hop++) {
       const r = await fetch(current, {
         redirect: 'manual',
-        headers: { 'User-Agent': UA, Referer: 'https://www.bilibili.com/' },
+        headers: { 'User-Agent': UA, Referer: 'https://passport.bilibili.com/' },
       })
       jarEntries(jar, r.headers.getSetCookie?.() ?? [])
       const loc = r.headers.get('location')
@@ -224,9 +230,9 @@ function fromCrossDomain(url: string): Record<string, string> {
 }
 
 /** 登录成功后的收尾：补 buvid、验证身份（nav），组装凭证。 */
-async function finalizeCredentials(cookies: Record<string, string>): Promise<{
+async function finalizeCredentials(cookies: Record<string, string>, refreshToken?: string): Promise<{
   sessdata: string; bili_jct?: string; dede_user_id?: string; buvid3?: string
-  mid?: number; uname?: string; saved_at: string
+  refresh_token?: string; mid?: number; uname?: string; saved_at: string
 }> {
   // buvid 补齐（风控接口需要；登录 Cookie 本身不含）
   try {
@@ -251,6 +257,7 @@ async function finalizeCredentials(cookies: Record<string, string>): Promise<{
     bili_jct: cookies.bili_jct,
     dede_user_id: cookies.DedeUserID,
     buvid3: cookies.buvid3,
+    refresh_token: refreshToken,
     mid,
     uname,
     saved_at: nowIso(),
