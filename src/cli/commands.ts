@@ -11,7 +11,7 @@ import type { Json } from '../models.ts'
 import { lookup as doLookup } from '../match/pipeline.ts'
 import { getEmbedder } from '../match/vector.ts'
 import { hybridSearch } from '../retrieve/fuse.ts'
-import { addResultToDict, runAdd, runAddEntry, runIterate } from '../induct/inductor.ts'
+import { addResultToDict, runAddEntry, runIterate } from '../induct/inductor.ts'
 import { validateAndCompile } from '../induct/compileMatcher.ts'
 import * as audit from '../audit.ts'
 import * as cards from '../render/cards.ts'
@@ -52,7 +52,6 @@ const sv = (p: Parsed, k: string): string[] => {
   return typeof v === 'string' ? [v] : []
 }
 
-const KINDS = ['word', 'formula', 'format', 'interaction', 'event', 'derived'] as const
 const SOURCES = ['surf', 'lookup', 'note', 'edit'] as const
 const LEVELS = ['brief', 'card', 'full'] as const
 
@@ -62,12 +61,14 @@ const backtestLine = (bt: { hit_rate: number; holdout_size?: number; fp_rate: nu
     + `｜误报 ${(bt.fp_rate * 100).toFixed(1)}%${bt.negatives !== undefined ? `（${bt.negatives} 负例）` : ''}`
 }
 
-/** entry 三通道：--entry-file（主） / --entry-json（内联） / 无（外部归纳路径）。 */
+/** entry 文件加载：--entry-file（主） / --entry-json（内联）二选一，必给——归纳由操作员亲写，无外部归纳器。 */
 function loadEntry(p: Parsed): unknown {
   const file = s(p, 'entry-file')
   const inline = s(p, 'entry-json')
   if (file && inline) throw new UsageError('--entry-file 与 --entry-json 只能给一个')
-  if (!file && !inline) return undefined
+  if (!file && !inline) {
+    throw new UsageError('需要 --entry-file <词条JSON文件>（主通道）或 --entry-json <内联JSON>——归纳由操作员亲写：先看 surf --focus / show --level full 的证据再写 entry')
+  }
   let raw = inline
   if (file) {
     try {
@@ -176,18 +177,7 @@ async function runAddCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
   const entry = loadEntry(p)
   const cid = s(p, 'cid')
   const text = s(p, 'text')
-  if (entry === undefined && !cid && !text) {
-    throw new UsageError('meme add 需要 --entry-file/--entry-json（亲写词条）或 --cid/--text（外部归纳）之一')
-  }
-  const kind = s(p, 'kind')
-  if (kind && !KINDS.includes(kind as typeof KINDS[number])) {
-    throw new UsageError(`--kind 只接受 ${KINDS.join('/')}，得到 "${kind}"`)
-  }
-  const res = entry !== undefined
-    ? await runAddEntry(db, rt.cfg, entry, { cid, text, force: b(p, 'force') })
-    : await runAdd(db, rt.cfg, {
-      cid, text, ctx: s(p, 'ctx'), force_kind: kind, llm: rt.llm(),
-    })
+  const res = await runAddEntry(db, rt.cfg, entry, { cid, text, force: b(p, 'force') })
   const [cardText, cardDict] = cards.card(res.meme)
   let human = `已入库（observing）：\n${cardText}${backtestLine(res.backtest)}`
   for (const w of res.warnings) human += `\n  ⚠ ${w}`
@@ -199,7 +189,7 @@ async function runIterateCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
   if (!mid) throw new UsageError('meme iterate 需要 <mid> 参数')
   const entry = loadEntry(p)
   const res = await runIterate(rt.db(), rt.cfg, mid, {
-    entry, force: b(p, 'force'), llm: rt.llm(),
+    entry, force: b(p, 'force'),
   })
   const [cardText, cardDict] = cards.card(res.meme)
   let human = `已修订（${res.meme.id} 保持 ${res.meme.state}）：\n${cardText}${backtestLine(res.backtest)}`
@@ -301,7 +291,6 @@ async function runSurfCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
     noFetch: b(p, 'no-fetch'),
     probe: sv(p, 'probe'),
     full: true, // agent 输出一次给全量候选（不翻页）
-    llm: rt.llmOrNull(),
   })
   return { payload: result.payload as Record<string, Json>, human: result.human }
 }
@@ -369,7 +358,7 @@ async function runConfig(p: Parsed, _rt: Runtime): Promise<CmdOut> {
   }
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(file, configTemplate(), { mode: 0o600 })
-  return { payload: { written: file }, human: `已写出配置模板：${file}（填 induction.api_key 解锁外部归纳）` }
+  return { payload: { written: file }, human: `已写出配置模板：${file}（字段全默认，按需改 db_path/fetch/backtest 等）` }
 }
 
 // ---- 命令表 ----
@@ -406,27 +395,25 @@ export const COMMANDS: Record<string, CmdDef> = {
   },
   add: {
     name: 'add',
-    args: '[--cid ID | --text T]',
-    desc: '收录新梗：entry 路径（--entry-file/--entry-json，亲写词条，零外部 LLM）优先；--cid/--text 走外部归纳器（需凭证）。重名报 MEME_DUPLICATE 引导 iterate',
+    args: '--entry-file F | --entry-json J',
+    desc: '收录新梗：操作员亲写词条 JSON（归纳不需要外部 LLM，写词条前先看证据：surf --focus <cid> / show --level full）。--cid/--text 关联候选证据并收口候选。重名报 MEME_DUPLICATE 引导 iterate',
     opts: {
-      cid: { type: 'string', desc: '候选 id（surf 输出的 c_NNNN）' },
-      text: { type: 'string', desc: '裸文本（走外部归纳器，需凭证）——亲写词条请用 --entry-file/--entry-json' },
-      ctx: { type: 'string', desc: '裸文本的出处/上下文' },
-      'entry-file': { type: 'string', desc: '词条 JSON 文件路径（主通道）' },
+      cid: { type: 'string', desc: '候选 id（surf 输出的 c_NNNN）：候选用例并入 backtest 正例并收口候选' },
+      text: { type: 'string', desc: '裸文本：同头候选自动合流收口' },
+      'entry-file': { type: 'string', desc: '词条 JSON 文件路径（主通道，必给其一）' },
       'entry-json': { type: 'string', desc: '词条 JSON 内联（短 entry）' },
       force: { type: 'boolean', desc: 'backtest 未达标仍入库（纯向量降级，进审计）' },
-      kind: { type: 'string', desc: '覆盖 triage 类别预判：word|formula|format|interaction|event|derived（仅归纳路径）' },
     },
     run: runAddCmd,
   },
   iterate: {
     name: 'iterate',
-    args: '<mid>',
-    desc: '重归纳/修订词条：野外新证据 + 旧卡先验 → 修订版（原位更新，保留 id/state/stats）。高频操作——首轮归纳常有偏差',
+    args: '<mid> --entry-file F | --entry-json J',
+    desc: '修订词条：带新证据亲写修订版（原位更新，保留 id/state/stats；释义实质变化自动记 drift）。高频操作——首轮归纳常有偏差',
     opts: {
-      'entry-file': { type: 'string', desc: '修订版词条 JSON 文件（零外部 LLM，推荐）' },
+      'entry-file': { type: 'string', desc: '修订版词条 JSON 文件（必给其一）' },
       'entry-json': { type: 'string', desc: '修订版词条 JSON 内联' },
-      force: { type: 'boolean', desc: 'backtest 未达标仍更新（降级纯向量，进审计）' },
+      force: { type: 'boolean', desc: 'backtest 未达标仍更新（纯向量降级，进审计）' },
     },
     run: runIterateCmd,
   },
@@ -477,7 +464,7 @@ export const COMMANDS: Record<string, CmdDef> = {
   config: {
     name: 'config',
     args: '<action>',
-    desc: '配置管理：init 写出 ~/.meme/config.json 模板（全默认值，api_key 留空待填）',
+    desc: '配置管理：init 写出 ~/.meme/config.json 模板（全默认值展开）',
     opts: {},
     run: runConfig,
   },

@@ -182,12 +182,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   payload  TEXT NOT NULL,
   ts       TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS induction_queue (
-  cid       TEXT PRIMARY KEY,
-  ctx       TEXT,
-  queued_at TEXT NOT NULL
-);
 `
 
 /** 打开（必要时创建）数据库并执行守卫；无迁移路径，版本不符一律拒收。 */

@@ -1,11 +1,10 @@
-/** 测试夹具：临时库、假 fetcher、假 LLM。全部离线（MEME_EMBED_OFF=1 见 vitest.config）。 */
+/** 测试夹具：临时库、假 fetcher。全部离线（MEME_EMBED_OFF=1 见 vitest.config）。 */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll } from 'vitest'
 import { connect, type Row } from '../src/db.ts'
 import { resolveConfig, type ResolvedConfig } from '../src/config.ts'
-import type { LLMResult, LlmClient } from '../src/induct/llm.ts'
 import { FetchResult } from '../src/fetch/sampler.ts'
 
 const tmpDirs: string[] = []
@@ -33,25 +32,6 @@ export function openDb(cfg: ResolvedConfig): ReturnType<typeof connect> {
   const db = connect(cfg.dbPath)
   openDbs.push(db)
   return db
-}
-
-/** 可编程假 LLM：按序返回预设响应（跳过网络）。 */
-export class FakeLLM implements LlmClient {
-  readonly calls: Array<{ system: string; user: string; model?: string }> = []
-  constructor(private readonly responses: Array<string | Error>) {}
-
-  async complete(system: string, user: string, opts: { model?: string } = {}): Promise<LLMResult> {
-    this.calls.push({ system, user, model: opts.model })
-    if (!this.responses.length) throw new Error('FakeLLM 预设响应耗尽')
-    const r = this.responses.shift()!
-    if (r instanceof Error) throw r
-    return {
-      text: r,
-      model: opts.model ?? 'fake',
-      usage: { input_tokens: 10, output_tokens: 20 },
-      stop_reason: 'end_turn',
-    }
-  }
 }
 
 export function fakeFetchRound(

@@ -14,9 +14,6 @@ import type { ResolvedConfig } from '../config.ts'
 import { resolveSessdata } from '../config.ts'
 import { updateSignals } from '../detect/signals.ts'
 import { candidateNotFound } from '../errors.ts'
-import type { LlmClient } from '../induct/llm.ts'
-import { runAdd } from '../induct/inductor.ts'
-import * as budget from '../induct/budget.ts'
 import { loadMatchers, scanTexts } from '../match/pipeline.ts'
 import { nowIso, todayIso } from '../models.ts'
 import { runFetch, type FetchResult } from '../fetch/sampler.ts'
@@ -49,36 +46,6 @@ export function handleReject(db: DatabaseSync, cids: string[], ban: boolean): { 
   }
   return { done, banned }
 }
-
-/** 处理上一轮预算耗尽排队的归纳。预算耗尽时剩余行必须全部重新排队——不丢行。 */
-async function processQueue(db: DatabaseSync, cfg: ResolvedConfig, llm: LlmClient | null): Promise<Record<string, unknown>[]> {
-  const done: Record<string, unknown>[] = []
-  const rows = budget.dequeueAll(db)
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    if (!budget.canSpend(db, cfg.induction.daily_call_budget)) {
-      for (const rest of rows.slice(i)) budget.enqueue(db, rest.cid as string, rest.ctx as string | null) // 全部重新排队
-      break
-    }
-    try {
-      const cid = String(row.cid).startsWith('c_') ? String(row.cid) : undefined
-      const text = cid ? undefined : String(row.ctx || String(row.cid).replace(/^text:/, ''))
-      if (!llm) throw new Error('无归纳客户端')
-      const res = await runAdd(db, cfg, { cid, text, ctx: (row.ctx as string) ?? undefined, llm })
-      done.push({ ...resJson(res) })
-    } catch (e) {
-      // 单条失败不阻塞 surf，但不得丢行：裸文本行的唯一载体就是这行
-      console.error(`meme: surf: 排队归纳 ${row.cid} 失败（${e}），重新排队`)
-      budget.enqueue(db, row.cid as string, row.ctx as string)
-    }
-  }
-  return done
-}
-
-const resJson = (res: Awaited<ReturnType<typeof runAdd>>) => ({
-  id: res.meme.id, name: res.meme.name, model: res.model,
-  backtest: res.backtest ? { hit_rate: res.backtest.hit_rate, fp_rate: res.backtest.fp_rate, passed: res.backtest.passed } : null,
-})
 
 /** 已有词条野外频率复查：命中计数、变体提示、爆发上升、存活/复活转移。 */
 function wildRecheck(db: DatabaseSync, cfg: ResolvedConfig, roundId: number): Array<Record<string, string>> {
@@ -181,11 +148,10 @@ function buildZones(db: DatabaseSync, cfg: ResolvedConfig, page: number, roundSi
   }
   const triggered = cands.filter((c) => c.state === 'triggered')
   const pending = cands.filter((c) => c.state === 'pending')
-  const queued = (db.prepare('SELECT COUNT(*) AS c FROM induction_queue').get() as Row).c as number
-  const backlogN = triggered.length + queued
+  const backlogN = triggered.length
   const backlogLine = backlogN >= cfg.lifecycle.backlog_alert
-    ? `积压候选 ${backlogN} 条未处理（triggered ${triggered.length}、排队 ${queued}、pending ${pending.length}）`
-    : `待处理：triggered ${triggered.length}｜排队 ${queued}｜pending ${pending.length}`
+    ? `积压候选 ${backlogN} 条待收录（triggered ${triggered.length}、pending ${pending.length}）`
+    : `待处理：triggered ${triggered.length}｜pending ${pending.length}`
   return {
     counts: { new: cands.length, dynamics: 0, fading: 0, backlog: backlogN },
     hot_keywords: hot,
@@ -194,7 +160,7 @@ function buildZones(db: DatabaseSync, cfg: ResolvedConfig, page: number, roundSi
     dynamics: [] as string[],
     fading: [] as string[],
     backlog_line: backlogLine,
-    backlog: { triggered: triggered.length, pending: pending.length, queued, alert: backlogN >= cfg.lifecycle.backlog_alert },
+    backlog: { triggered: triggered.length, pending: pending.length, alert: backlogN >= cfg.lifecycle.backlog_alert },
     page,
     has_more: hasMore,
   }
@@ -207,7 +173,6 @@ export interface SurfOpts {
   noFetch?: boolean
   probe?: string[]
   full?: boolean
-  llm?: LlmClient | null
   signal?: AbortSignal
   /** 测试注入的假 fetcher。 */
   fetch?: (db: DatabaseSync, cfg: ResolvedConfig['fetch'], roundId: number, sessdata: string, probe: string[], signal?: AbortSignal) => Promise<FetchResult>
@@ -252,7 +217,6 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
   }
 
   // ---- 新一轮 ----
-  const queuedDone = await processQueue(db, cfg, opts.llm ?? null)
   const run = db.prepare('INSERT INTO surf_runs(started_at, fetched) VALUES(?, 0)').run(nowIso())
   const roundId = Number(run.lastInsertRowid)
 
@@ -291,7 +255,6 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
   zones.degraded = fetchNote
   zones.signals = { ...sig }
   zones.candidate_transitions = trans
-  zones.queued_inductions_done = queuedDone
   zones.dynamics_raw = dynamics
   zones.dynamics = dynamics
     .slice(0, 10)

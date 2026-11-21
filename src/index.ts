@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BashEnvContributor } from '@deepseek-ai/dsh-shell-env'
 import type { SkillRegistration } from '@deepseek-ai/dsh-skill'
-import { SCHEMA_DOC } from './induct/prompts.ts'
+import { SCHEMA_DOC } from './models.ts'
 
 export const name = 'dsh-meme'
 export const inject = ['skills', 'shellEnv']
@@ -46,7 +46,7 @@ const MANUAL = `# meme —— 梗百科（CLI）
 - 释义实质变化会被 iterate 自动记 drift，无需手动补
 - surf 全部数据源失败会自动降级为存量模式（正常行为）；probe 探测/完整评论区需要登录态：请用户在终端跑 meme login
 - 笔记（note）是低信任区：疑点先 note add --head <词头> 不建词条，证据够了再 add
-- entry 路径零外部 LLM 调用，永远优先；不带 entry 的 add/iterate 走外部归纳器，需要 ~/.meme/config.json 里的 induction.api_key（agent shell 会被 harness 剥离密钥类环境变量，凭证必须放配置文件）
+- add/iterate 只收 entry 文件——归纳由你（操作员）亲写，没有外部归纳器；写前先取证（surf --focus <cid> 看候选完整证据，show --level full 看词条全量），--cid 把候选用例并入 backtest 正例并收口候选
 
 entry JSON schema（add --entry-file / iterate --entry-file 的词条文件，全部字段必填，无内容用 null/[]）：
 ${SCHEMA_DOC}

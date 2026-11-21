@@ -67,8 +67,9 @@ describe('entry 三通道', () => {
       .rejects.toMatchObject({ code: 'MEME_ENTRY_INVALID' })
   })
 
-  it('三通道皆无且无 cid/text → UsageError', async () => {
+  it('无 entry → UsageError（归纳由操作员亲写；cid/text 只做证据关联不触发归纳）', async () => {
     await expect(COMMANDS.add.run({ _: [], flags: {} }, rt)).rejects.toBeInstanceOf(UsageError)
+    await expect(COMMANDS.add.run({ _: [], flags: { cid: 'c_0001' } }, rt)).rejects.toBeInstanceOf(UsageError)
   })
 })
 
@@ -156,15 +157,16 @@ function seedCandidateWithEvidence(db: Runtime['db']): string {
 }
 
 describe('write path 命令', () => {
-  it('add entry-file 路径：零 LLM 入库，payload 带 operator 模型', async () => {
+  it('add entry-file 路径：闸门全保留，payload 带结构化结果与 backtest', async () => {
     const cid = seedCandidateWithEvidence(rt.db)
     const dir = mkdtempSync(join(tmpdir(), 'meme-entry-'))
     const file = join(dir, 'entry.json')
     writeFileSync(file, JSON.stringify(entry()), 'utf8')
     try {
       const out = await COMMANDS.add.run({ _: [], flags: { cid, 'entry-file': file } }, rt)
-      expect(out.payload.model).toBe('operator')
       expect(out.payload.id).toMatch(/^m_/)
+      expect(out.payload.matcher).toBe('compiled')
+      expect(out.payload.backtest).not.toBeNull()
       expect(out.human).toContain('已入库')
       // platform 由 pipeline 标注：surf 候选（cid）→ bilibili
       const row = rt.db().prepare('SELECT platform FROM memes WHERE id=?').get(out.payload.id as string) as { platform: string }
@@ -238,14 +240,14 @@ describe('write path 命令', () => {
 describe('config', () => {
   it('loadConfig 缺文件 → 全默认；显式文件覆盖 db_path', () => {
     const dflt = loadConfig(join(tmpdir(), 'meme-no-config.json'))
-    expect(dflt.induction.model).toBe('deepseek-flash')
+    expect(dflt.backtest.min_hit).toBe(0.7)
     const dir = mkdtempSync(join(tmpdir(), 'meme-cfg-'))
     const file = join(dir, 'config.json')
-    writeFileSync(file, JSON.stringify({ db_path: 'D:/x/memes.db', induction: { api_key: 'sk-x' } }), 'utf8')
+    writeFileSync(file, JSON.stringify({ db_path: 'D:/x/memes.db', backtest: { min_hit: 0.9 } }), 'utf8')
     try {
       const cfg = loadConfig(file)
       expect(cfg.dbPath).toBe('D:/x/memes.db')
-      expect(cfg.induction.api_key).toBe('sk-x')
+      expect(cfg.backtest.min_hit).toBe(0.9)
       expect(cfg.fetch.videos_per_round).toBe(30) // 未写字段回落默认
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -274,7 +276,7 @@ describe('config', () => {
       expect(file.startsWith(fakeHome)).toBe(true)
       expect(existsSync(file)).toBe(true)
       const tpl = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
-      expect((tpl.induction as Record<string, unknown>).api_key).toBe('')
+      expect((tpl.backtest as Record<string, unknown>).min_hit).toBe(0.7)
       expect(out.payload.written).toBe(file)
       await expect(COMMANDS.config.run({ _: ['init'], flags: {} }, rt))
         .rejects.toMatchObject({ code: 'MEME_CONFIG_EXISTS' })
@@ -287,10 +289,10 @@ describe('config', () => {
   it('configTemplate 是合法 JSON 且字段齐全', () => {
     const tpl = JSON.parse(configTemplate()) as Record<string, unknown>
     expect(Object.keys(tpl)).toEqual(
-      expect.arrayContaining(['db_path', 'credentials_file', 'fetch', 'induction', 'retrieval', 'lifecycle', 'detect']),
+      expect.arrayContaining(['db_path', 'credentials_file', 'fetch', 'backtest', 'retrieval', 'lifecycle', 'detect']),
     )
-    expect((tpl.induction as Record<string, unknown>).api_key).toBe('')
-    expect(resolveConfig({}).induction.api_key).toBeUndefined()
+    expect((tpl.backtest as Record<string, unknown>).min_hit).toBe(0.7)
+    expect(resolveConfig({}).backtest.holdout).toBe(0.3)
   })
 })
 

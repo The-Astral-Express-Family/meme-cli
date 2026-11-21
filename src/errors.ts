@@ -43,7 +43,7 @@ export class MemeError extends Error {
 export const notFound = (query: string, nearby: NearbyRef[]): MemeError => new MemeError(
   'MEME_NOT_FOUND',
   `未找到词条：${query}`,
-  '可先用 meme add 收录裸文本（observing 入库），或 meme note 记录疑点。',
+  '确认是梗后写 entry 文件再 meme add --entry-file 收录（observing 入库），或 meme note 记录疑点。',
   nearby.slice(0, 3),
 )
 
@@ -51,25 +51,6 @@ export const candidateNotFound = (cid: string): MemeError => new MemeError(
   'CANDIDATE_NOT_FOUND',
   `未找到候选：${cid}`,
   '用 meme surf 翻看候选，或 meme search 核对是否已有同形词条。',
-)
-
-export const llmNoCredential = (hint = ''): MemeError => new MemeError(
-  'MEME_LLM_NO_CREDENTIAL',
-  `归纳器缺少模型凭证：induction.api_key 未配置且环境变量 DEEPSEEK_API_KEY 未设置${hint ? `（${hint}）` : ''}`,
-  '在 ~/.meme/config.json 的 induction.api_key 填入凭证后重试；read path（lookup/search/show）不需要凭证。'
-  + '更推荐 add/iterate 的 entry 路径：操作员亲写词条，零外部 LLM 调用。',
-)
-
-export const llmCallFailed = (detail: string): MemeError => new MemeError(
-  'MEME_LLM_CALL_FAILED',
-  `归纳器调用失败：${detail}`,
-  '稍后重试 meme add；候选证据已保留在队列中，不会丢失。也可用 meme note 先记一笔。',
-)
-
-export const budgetExceeded = (queued: number): MemeError => new MemeError(
-  'MEME_BUDGET_EXCEEDED',
-  `归纳日预算已用尽，本次触发已进入排队（当前排队 ${queued} 条）。`,
-  '等待下一轮 surf 自动处理排队候选，或调大配置 induction.daily_call_budget。',
 )
 
 export const dbForeign = (path: string): MemeError => new MemeError(

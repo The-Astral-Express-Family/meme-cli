@@ -105,11 +105,7 @@ describe('交互梗 lookup 上下文', () => {
 })
 
 describe('surf 呈现', () => {
-  it('判梗参考进呈现与归纳提示词（轻强调：视角而非模板）', async () => {
-    const { SYSTEM } = await import('../src/induct/prompts.ts')
-    expect(SYSTEM).toContain('判梗参考')
-    expect(SYSTEM).toContain('不是判定模板')
-    expect(SYSTEM).toContain('以证据为准')
+  it('判梗参考进呈现（轻强调：视角而非模板）', () => {
     const zones = {
       counts: { new: 0, dynamics: 0, fading: 0, backlog: 0 },
       new_candidates: [], dynamics: [], fading: [],
@@ -119,27 +115,12 @@ describe('surf 呈现', () => {
   })
 })
 
-describe('队列不丢行', () => {
-  it('预算耗尽时 processQueue 全部重新排队', async () => {
-    const budget = await import('../src/induct/budget.ts')
-    const { runSurf } = await import('../src/surf/run.ts')
-    const { fakeFetchRound } = await import('./helpers.ts')
-    env.cfg.induction.daily_call_budget = 0 // 立即触发预算闸门（llm 不会被调用）
-    budget.enqueue(env.db, 'c_0001', null)
-    budget.enqueue(env.db, 'c_0002', null)
-    budget.enqueue(env.db, null, '测试裸文本归纳')
-    await runSurf(env.db, env.cfg, { noFetch: true, llm: null, fetch: fakeFetchRound() as never })
-    const remaining = (env.db.prepare('SELECT COUNT(*) AS c FROM induction_queue').get() as { c: number }).c
-    expect(remaining).toBe(3) // 三行全部还在队里，一行未丢
-  })
-})
-
 describe('surf 轮次（存量模式）', () => {
   it('no_fetch 不触网照常呈现', async () => {
     const { runSurf } = await import('../src/surf/run.ts')
     const { fakeFetchRound } = await import('./helpers.ts')
     const r = await runSurf(env.db, env.cfg, {
-      noFetch: true, llm: null, fetch: fakeFetchRound() as never,
+      noFetch: true, fetch: fakeFetchRound() as never,
     })
     const payload = r.payload as Record<string, unknown>
     expect(payload.counts).toBeDefined()
@@ -156,12 +137,12 @@ describe('surf 轮次（存量模式）', () => {
         usages: [], video_pairs: [{ aid: 9000 + i, up_mid: 0 }], day: '2026-11-09', round_id: 1,
       })
     }
-    const full = (await runSurf(env.db, env.cfg, { noFetch: true, full: true, llm: null, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
+    const full = (await runSurf(env.db, env.cfg, { noFetch: true, full: true, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
     expect((full.new_candidates_raw as unknown[]).length).toBe(15)
     expect(full.has_more).toBe(false)
     const { kvSet } = await import('../src/db.ts')
     kvSet(env.db, 'surf_page', '0')
-    const page2 = (await runSurf(env.db, env.cfg, { noFetch: true, more: true, roundSize: 10, llm: null, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
+    const page2 = (await runSurf(env.db, env.cfg, { noFetch: true, more: true, roundSize: 10, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
     expect((page2.new_candidates_raw as unknown[]).length).toBe(5) // 第 2 页 = 剩余 5 条
     expect(page2.has_more).toBe(false)
   })
@@ -176,7 +157,7 @@ describe('surf 轮次（存量模式）', () => {
       res.probed = [...probe]
       return res
     }
-    await runSurf(env.db, env.cfg, { probe: ['我记下了', '烧心'], llm: null, fetch: fake as never })
+    await runSurf(env.db, env.cfg, { probe: ['我记下了', '烧心'], fetch: fake as never })
     expect(captured).toEqual(['我记下了', '烧心'])
   })
 
@@ -190,7 +171,7 @@ describe('surf 轮次（存量模式）', () => {
     // runSurf 会开出新一轮（全新库为 round 1），评论灌进同一轮
     const { seedComments } = await import('./helpers.ts')
     seedComments(env.db, ['绷。', '绷不住了。', '我直接绷。'], [401, 402, 403], 1)
-    const r = await runSurf(env.db, env.cfg, { noFetch: true, llm: null, fetch: fakeFetchRound() as never })
+    const r = await runSurf(env.db, env.cfg, { noFetch: true, fetch: fakeFetchRound() as never })
     const m2 = (await import('../src/entries.ts')).get(env.db, 'm_0002')!
     expect(m2.stats.last_matched_round === 1 || m2.wild_rounds.length > 0).toBe(true) // 命中已记录
     expect(Array.isArray(r.payload.dynamics_raw)).toBe(true)

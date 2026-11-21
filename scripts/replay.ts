@@ -39,7 +39,7 @@ copyFileSync(dbArg, tmp)
 
 // 清空派生状态：候选/日聚合/序列，只留原始湖
 const raw = new DatabaseSync(tmp)
-for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily', 'meme_hit_daily', 'induction_queue']) {
+for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily', 'meme_hit_daily']) {
   raw.exec(`DELETE FROM ${t}`)
 }
 raw.exec("DELETE FROM kv_meta WHERE key LIKE 'seq_%'")

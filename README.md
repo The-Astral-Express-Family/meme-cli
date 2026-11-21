@@ -1,13 +1,13 @@
 # dsh-meme —— 梗百科（deepseek-harness 纯 CLI 插件）
 
-由 LLM 操作员驱动的梗百科：梗的**采集**（surf）、**归纳**（add）、**迭代**（iterate）、**修订**（edit）、**检索**（lookup / search / show）与**生命周期管理**（遗忘 = 降级 + 压缩，不是删除）。库与 CLI **平台无关**——群聊、直播、任何文本里的梗都能 lookup 与收录（来源自动落 `platform` 元数据：surf 候选标 bilibili，其余留空）；B站 surf 是发现端（采集站外新梗）。
+由 LLM 操作员驱动的梗百科：梗的**采集**（surf）、**收录**（add：操作员亲写词条）、**修订**（iterate / edit）、**检索**（lookup / search / show）与**生命周期管理**（遗忘 = 降级 + 压缩，不是删除）。库与 CLI **平台无关**——群聊、直播、任何文本里的梗都能 lookup 与收录（来源自动落 `platform` 元数据：surf 候选标 bilibili，其余留空）；B站 surf 是发现端（采集站外新梗）。
 
 目标场景：一个 agent 要在互联网时代的玩梗群里有趣地互动——理解别人在玩什么梗（lookup）、
 自己接梗时不出错（卡片的 usage/taboo/aggression）、发现群外正在发生的新梗（surf）、
 并且知道自己的梗知识可能是错的（iterate）。
 
 - **纯 CLI 形态**：harness 工具目录**零占用**——操作面全部在 `meme` CLI，主控 agent 经 bash/pwsh 调用；插件本体只做两件事：注册 meme skill（一句话目录 + 按需展开的手册）、shellEnv 注入调用入口。
-- **读写路径分离**：write path（surf / add / iterate）发生 LLM 推理与外呼；read path（lookup / search / show）全本地、毫秒级。
+- **读写路径分离**：write path 只有 surf 外呼 B站；add / iterate 是操作员亲写词条 + 全本地闸门（JSON 校验、matcher 编译、backtest），不外呼任何 LLM——操作员本身就是 LLM，归纳不需要再调一个。read path（lookup / search / show）全本地、毫秒级。
 - **零自治**：完全被动，什么时候 surf、一轮刷多深，由调用方决断。
 - **自持数据**：单个 SQLite 文件（默认 `~/.meme/memes.db`），备份 = 拷贝文件；schema 无迁移路径，旧版库文件一律拒收（删除重建）。
 - **干净安装**：`npm install` 即全部（node:sqlite + 预编译二进制依赖），与 harness 分发模型一致。
@@ -48,8 +48,8 @@ npm i -g dsh-meme
 | `meme lookup <text>` | 识别文本中的梗——命中返回玩梗卡（hits[].card），一次调用即可接梗；交互梗 `--ctx` 给会话上文 |
 | `meme search <query>` | 模糊回忆式检索（BM25 + 例句级向量混合，RRF） |
 | `meme show <ref>` | 词条分级输出（`--level brief\|card\|full`） |
-| `meme add` | 收录：`--entry-file`/`--entry-json`（亲写词条，零外部 LLM，闸门全保留）优先；`--cid`/`--text` 走外部归纳器（需凭证） |
-| `meme iterate <mid>` | 重归纳词条：野外新证据 + 旧卡先验 → 修订版（原位更新，保留 id/state/stats） |
+| `meme add` | 收录：`--entry-file`/`--entry-json` 亲写词条（必给其一，闸门全保留）；`--cid`/`--text` 关联候选证据并收口候选 |
+| `meme iterate <mid>` | 修订词条：带新证据亲写修订版（原位更新，保留 id/state/stats；释义实质变化自动记 drift） |
 | `meme edit <mid>` | 轻量修订（`--variant` / `--drift` / `--promote` / `--kill` / `--gist` / `--revive`） |
 | `meme surf` | 一轮 B站获取 + 证据更新 + 四区呈现（数分钟；调用方给足 timeout 或 run_in_background） |
 | `meme note add\|list\|show\|edit\|rm` | 笔记增删改查（低信任附着物，永不进 matcher/card） |
@@ -82,17 +82,15 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
     "max_video_age_days": 10,
     "probe_keywords": 3                 // 登录态下每轮搜索探测的热词数
   },
-  "induction": {
-    "model": "deepseek-flash",
-    "daily_call_budget": 40,
-    "api_key": "",                      // wire 直连凭证；agent shell 会被 harness
-    "base_url": ""                      // 剥离密钥类环境变量，凭证必须写这里
+  "backtest": {
+    "min_hit": 0.7,                     // 留出集命中率门槛
+    "max_fp": 0.02                      // 负例误报率门槛
   },
   "detect": { "generic_extra": ["希望"] } // 追加停用词（--ban 沉淀的 kv generic_auto 之外）
 }
 ```
 
-环境变量仅作临时覆盖：`MEME_DB`（库路径）、`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`（只对人类终端有效——agent shell 里 harness 会剥离 `*KEY*/*TOKEN*/*SECRET*`，这是 harness 的安全设计，故 agent 驱动的归纳凭证必须放配置文件）。
+没有凭证类字段：收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM。环境变量仅作临时覆盖：`MEME_DB`（库路径）。
 
 ## 发现端架构（五通道，实战湖回放校准）
 
@@ -114,18 +112,18 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 
 ## 行为要点
 
-- **backtest 闸门**：留出集命中率 ≥0.7、负例误报率 ≤0.02；不达标自动修订一轮，仍不达标降级纯向量
-  （entry 路径则报 `MEME_BACKTEST_FAIL` 附样例给修订反馈，`--force` 跳过）。
+- **backtest 闸门**：留出集命中率 ≥0.7、负例误报率 ≤0.02；不达标报 `MEME_BACKTEST_FAIL` 附样例
+  给修订反馈（按漏报/误报样例改 matcher 再交），`--force` 跳过（降级纯向量，进审计）。
 - **重名守卫**：add 产出与库内词条同名/同别名 → `MEME_DUPLICATE` 引导 iterate。
 - **观察期隔离**：observing 词条只服务理解侧——理解错梗无害，表达用错才是事故。
 - **遗忘**：active → fading（90 天窗口频率 -50%）→ tombstone（近零）；复活先给最小卡；词条永不删除，ID 永不回收。
-- **降级**：B站获取失败不阻塞 surf，从原始湖存量照常出内容；无归纳凭证时 surf 排队归纳静默重新排队（不丢行）。
+- **降级**：B站获取失败不阻塞 surf，从原始湖存量照常出内容。
 
 ## 开发
 
 ```sh
 npm install
-npm test                # 151 个离线测试（假 fetcher + 假 LLM + 强制词法降级；domain 119 + CLI 32）
+npm test                # 146 个离线测试（假 fetcher + 强制词法降级）
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
@@ -136,5 +134,5 @@ npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接
 
 - 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载；离线时向量层降级为纯词法。
 - B站搜索接口需登录态（`meme login`），匿名时探测通道自动跳过。
-- 图梗只发现（pHash 簇）不识图——理解留给归纳时的多模态判断。
-- 归纳用 LLM 走 wire 直连（Anthropic Messages 协议端点），不再挂宿主 llm 服务——CLI 是独立进程；entry 路径（agent 亲写词条）零 LLM 调用，永远优先。
+- 图梗只发现（pHash 簇）不识图——理解留给操作员看图判断（surf --focus 会列出候选的来源视频与用例）。
+- 收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM；闸门（JSON 校验 / matcher 编译 / backtest）全本地。

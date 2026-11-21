@@ -1,88 +1,16 @@
-/** add 归纳流（假 LLM）：triage、解析、修复、backtest 修订、降级、预算排队、entry 路径。 */
+/** add/iterate 入库流（操作员亲写 entry）：闸门、重名守卫、候选收口、iterate 证据收集。 */
 import { beforeEach, describe, expect, it } from 'vitest'
-import { extractJson, runAdd, runAddEntry, runIterate, collectIterateEvidence } from '../src/induct/inductor.ts'
+import { runAddEntry, runIterate, collectIterateEvidence } from '../src/induct/inductor.ts'
 import { MemeError } from '../src/errors.ts'
 import * as audit from '../src/audit.ts'
 import * as entries from '../src/entries.ts'
 import * as candidates from '../src/candidates.ts'
-import { FakeLLM, makeCfg, openDb, seedComments } from './helpers.ts'
+import { makeCfg, openDb, seedComments } from './helpers.ts'
 
 let env: { db: ReturnType<typeof openDb>; cfg: ReturnType<typeof makeCfg>['cfg'] }
 beforeEach(() => {
   const m = makeCfg()
   env = { db: openDb(m.cfg), cfg: m.cfg }
-})
-
-const GOOD_OUTPUT = JSON.stringify({
-  name: '典',
-  aliases: ['典中典', '太典了'],
-  class: 'word',
-  birth_circa: '2021',
-  card: {
-    gist: '单字反讽"经典"，嘲讽对方发言陈旧套路化',
-    usage: ['这波啊，这波是典', '典中典'],
-    taboo: '对方真诚分享时用会显得刻薄', register: '泛B站', aggression: '中',
-  },
-  examples: ['这就是典中典吧', '典，太典了'],
-  matcher: {
-    patterns: [{ kind: 'lex', terms: ['典', '典中典', '太典了'] }],
-    constraints: { standalone: false, forbid_inner: true, forbid_context: ['古典', '经典'], require_context: [] },
-  },
-  lineage_parent: null, lineage_mutation: null, notes: null,
-})
-
-describe('extractJson', () => {
-  it('围栏与裸 JSON 均可提取', () => {
-    expect(extractJson(`前置说明\n\`\`\`json\n${GOOD_OUTPUT}\n\`\`\`\n后记`).name).toBe('典')
-    expect(extractJson(GOOD_OUTPUT).name).toBe('典')
-  })
-})
-
-describe('LLM 路径 add', () => {
-  it('裸文本 happy path：入库 observing + 审计', async () => {
-    seedComments(env.db, Array.from({ length: 300 }, (_, i) => `完全无关的普通评论${i}`), undefined, 1)
-    const llm = new FakeLLM(['```json\n' + GOOD_OUTPUT + '\n```'])
-    const res = await runAdd(env.db, env.cfg, { text: '典中典了属于是', ctx: '游戏区热评', llm })
-    expect(res.meme.id.startsWith('m_')).toBe(true)
-    expect(res.meme.state).toBe('observing')
-    expect(res.meme.matcher).not.toBeNull()
-    expect(res.backtest).not.toBeNull()
-    expect(res.backtest!.passed || res.backtest!.fp_rate <= 0.02).toBe(true)
-    const logs = audit.forMeme(env.db, res.meme.id)
-    expect(logs.some((a) => a.action === 'induct')).toBe(true)
-  })
-
-  it('坏 JSON 触发修复轮', async () => {
-    const llm = new FakeLLM(['这不是JSON', '```json\n' + GOOD_OUTPUT + '\n```'])
-    const res = await runAdd(env.db, env.cfg, { text: '典', llm })
-    expect(res.meme.name).toBe('典')
-    expect(llm.calls).toHaveLength(2) // 修复轮发生了
-  })
-
-  it('backtest 不达标 → 纯向量降级 + 警告', async () => {
-    const wide = JSON.stringify({
-      name: '泛词梗', aliases: [], class: 'word', birth_circa: null,
-      card: { gist: 'x', usage: [], taboo: null, register: null, aggression: '低' },
-      examples: ['哈哈出的'],
-      matcher: { patterns: [{ kind: 'lex', terms: ['的'] }], constraints: {} },
-    })
-    seedComments(env.db, Array.from({ length: 300 }, (_, i) => `普通但是的评论${i}`), undefined, 1)
-    const llm = new FakeLLM(['```json\n' + wide + '\n```', '```json\n' + wide + '\n```']) // 原始 + 修订轮仍然宽
-    const res = await runAdd(env.db, env.cfg, { text: '的', llm })
-    expect(res.meme.matcher).toBeNull() // backtest 未达标 → 纯向量
-    expect(res.matcher_degraded).toBe(true)
-    expect(res.warnings.some((w) => w.includes('纯向量'))).toBe(true)
-  })
-
-  it('预算耗尽 → 排队', async () => {
-    const budget = await import('../src/induct/budget.ts')
-    env.cfg.induction.daily_call_budget = 1
-    budget.spend(env.db, 10 ** 9) // 耗尽预算
-    await expect(runAdd(env.db, env.cfg, { text: '典', llm: new FakeLLM([]) }))
-      .rejects.toMatchObject({ code: 'MEME_BUDGET_EXCEEDED' })
-    const n = (env.db.prepare('SELECT COUNT(*) AS c FROM induction_queue').get() as { c: number }).c
-    expect(n).toBe(1)
-  })
 })
 
 const entry = (name = '青铜巨像') => ({
@@ -109,18 +37,19 @@ function seedCandidateWithEvidence(db: ReturnType<typeof openDb>): string {
   return candidates.byHead(db, '青铜巨像')!.cid
 }
 
-describe('entry 路径（操作员亲写词条）', () => {
-  it('零外部 LLM，闸门全保留；审计 model=operator；候选收口 inducted', async () => {
+describe('add：操作员亲写 entry', () => {
+  it('闸门全保留；审计带 entry_notes；候选收口 inducted', async () => {
     const cid = seedCandidateWithEvidence(env.db)
     const res = await runAddEntry(env.db, env.cfg, entry(), { cid })
-    expect(res.model).toBe('operator')
+    expect(res.meme.id.startsWith('m_')).toBe(true)
+    expect(res.meme.state).toBe('observing')
     expect(res.meme.matcher).not.toBeNull()
     expect(res.backtest?.passed).toBe(true)
     expect(entries.get(env.db, res.meme.id)).not.toBeNull()
     expect(candidates.get(env.db, cid)!.state).toBe('inducted')
     const audits = audit.forMeme(env.db, res.meme.id)
     expect(audits.length).toBeGreaterThan(0)
-    expect((audits[0].payload as { model: string }).model).toBe('operator')
+    expect((audits[0].payload as { entry_notes: string }).entry_notes).toBe('操作员测试词条')
   })
 
   it('backtest 未达标：报 MEME_BACKTEST_FAIL 附样例；词条不入库', async () => {

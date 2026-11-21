@@ -1,8 +1,8 @@
 /**
- * 配置：单源 ~/.meme/config.json（JSON，snake_case，与旧 cordis.yml 字段同形）。
+ * 配置：单源 ~/.meme/config.json（JSON，snake_case）。
  * CLI 是独立进程读不到 harness profile 的 cordis 配置——本文件是唯一配置面。
- * 环境变量仅作临时覆盖；注意 harness 会剥离 agent shell 里的密钥类变量，
- * 归纳凭证（induction.api_key）应写进配置文件而不是环境变量。
+ * 环境变量仅作临时覆盖（MEME_DB）。归纳不需要外部 LLM——操作员 agent 亲写词条，
+ * backtest 等闸门全部本地运行，配置里没有凭证类字段。
  */
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -10,9 +10,6 @@ import { join } from 'node:path'
 import { MemeError } from './errors.ts'
 
 export const ENV_DB = 'MEME_DB'
-export const ENV_API_KEY = 'DEEPSEEK_API_KEY'
-export const ENV_BASE_URL = 'DEEPSEEK_BASE_URL'
-export const DEFAULT_BASE_URL = 'https://api.deepseek.com/anthropic'
 
 export interface FetchConfig {
   popular_pages: number
@@ -41,20 +38,12 @@ export interface FetchConfig {
   timeout: number
 }
 
-export interface InductionConfig {
-  model: string
-  small_model: string
-  reasoning_effort: string
-  max_tokens: number
-  daily_call_budget: number
-  backtest_holdout: number
-  backtest_min_hit: number
-  backtest_max_fp: number
-  backtest_negatives: number
-  /** wire 直连凭证（优先）；空回落 $DEEPSEEK_API_KEY。 */
-  api_key?: string
-  /** wire 端点（优先）；空回落 $DEEPSEEK_BASE_URL 再回落官方 anthropic 端点。 */
-  base_url?: string
+export interface BacktestConfig {
+  /** 留出集占比（去污染：留出用例不进任何提示词/库外反馈）。 */
+  holdout: number
+  min_hit: number
+  max_fp: number
+  negatives: number
 }
 
 export interface RetrievalConfig {
@@ -86,7 +75,7 @@ export interface Config {
   db_path?: string
   credentials_file?: string
   fetch?: Partial<FetchConfig>
-  induction?: Partial<InductionConfig>
+  backtest?: Partial<BacktestConfig>
   retrieval?: Partial<RetrievalConfig>
   lifecycle?: Partial<LifecycleConfig>
   detect?: { generic_extra?: string[] }
@@ -119,16 +108,11 @@ const DEFAULT_FETCH: FetchConfig = {
   timeout: 15,
 }
 
-const DEFAULT_INDUCTION: InductionConfig = {
-  model: 'deepseek-flash',
-  small_model: 'deepseek-flash',
-  reasoning_effort: 'low',
-  max_tokens: 8192,
-  daily_call_budget: 40,
-  backtest_holdout: 0.3,
-  backtest_min_hit: 0.7,
-  backtest_max_fp: 0.02,
-  backtest_negatives: 1000,
+const DEFAULT_BACKTEST: BacktestConfig = {
+  holdout: 0.3,
+  min_hit: 0.7,
+  max_fp: 0.02,
+  negatives: 1000,
 }
 
 const DEFAULT_RETRIEVAL: RetrievalConfig = {
@@ -160,7 +144,7 @@ export interface ResolvedConfig {
   dbPath: string
   credentialsFile: string
   fetch: FetchConfig
-  induction: InductionConfig
+  backtest: BacktestConfig
   retrieval: RetrievalConfig
   lifecycle: LifecycleConfig
   genericExtra: string[]
@@ -176,7 +160,7 @@ export function resolveConfig(raw: Config = {}): ResolvedConfig {
     dbPath: envDb || raw.db_path || defaultDbPath(),
     credentialsFile: raw.credentials_file || join(homedir(), '.meme', 'credentials.json'),
     fetch: { ...DEFAULT_FETCH, ...raw.fetch },
-    induction: { ...DEFAULT_INDUCTION, ...raw.induction },
+    backtest: { ...DEFAULT_BACKTEST, ...raw.backtest },
     retrieval: { ...DEFAULT_RETRIEVAL, ...raw.retrieval },
     lifecycle: { ...DEFAULT_LIFECYCLE, ...raw.lifecycle },
     genericExtra: raw.detect?.generic_extra ?? [],
@@ -207,13 +191,13 @@ export function loadConfig(file: string = configFile()): ResolvedConfig {
   return resolveConfig(raw)
 }
 
-/** `meme config init` 的模板：全默认值展开，api_key 留空待填。 */
+/** `meme config init` 的模板：全默认值展开。 */
 export function configTemplate(): string {
   return JSON.stringify({
     db_path: '',
     credentials_file: '',
     fetch: { ...DEFAULT_FETCH },
-    induction: { ...DEFAULT_INDUCTION, api_key: '', base_url: '' },
+    backtest: { ...DEFAULT_BACKTEST },
     retrieval: { ...DEFAULT_RETRIEVAL },
     lifecycle: { ...DEFAULT_LIFECYCLE },
     detect: { generic_extra: [] },
