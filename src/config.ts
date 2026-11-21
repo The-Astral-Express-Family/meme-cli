@@ -33,7 +33,6 @@ export interface FetchConfig {
   subreply_pages_per_root: number
   max_comment_age_days: number
   max_video_age_days: number
-  sessdata_env: string
   probe_keywords: number
   subreply_roots: number
   comment_images_per_round: number
@@ -112,7 +111,6 @@ const DEFAULT_FETCH: FetchConfig = {
   subreply_pages_per_root: 1,
   max_comment_age_days: 30,
   max_video_age_days: 0,
-  sessdata_env: '',
   probe_keywords: 0,
   subreply_roots: 5,
   comment_images_per_round: 40,
@@ -241,9 +239,7 @@ export function readCredentials(file: string): BiliCredentials | null {
   }
 }
 
-/** 登录态解析：凭证文件 > sessdata_env 环境变量。 */
+/** 登录态唯一来源：meme login 写出的凭证文件。 */
 export function resolveSessdata(cfg: ResolvedConfig): string {
-  const cred = readCredentials(cfg.credentialsFile)
-  if (cred?.sessdata) return cred.sessdata
-  return cfg.fetch.sessdata_env ? process.env[cfg.fetch.sessdata_env] || '' : ''
+  return readCredentials(cfg.credentialsFile)?.sessdata ?? ''
 }

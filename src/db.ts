@@ -1,17 +1,16 @@
 /**
- * SQLite 单文件存储（node:sqlite）：application_id 守卫 + 单调 user_version 迁移。
+ * SQLite 单文件存储（node:sqlite）：application_id + user_version 双守卫。
  *
  * 逻辑分区：原始湖 / 候选队列 / 词条库 / 笔记 / 审计日志 / surf 轮次 / 向量 / FTS。
- * DDL 与 Python v0.2 逐字节一致——两端的库文件可直接共享。
+ * 无迁移路径：库结构只随版本演进，旧库一律拒收（删除重建，schema 见 DDL）。
  */
 import { mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { segment } from './tokenize.ts'
 import { dbForeign } from './errors.ts'
 import { SCHEMA_VERSION } from './version.ts'
 
-export const APP_ID = 0x4d454d45 // 'MEME'
+export const APP_ID = 0x4d454d46 // 'MEMF'——dsh-meme 独立谱系，异构旧库在此即被拒
 
 /** 行对象（node:sqlite 返回列名键控的普通对象）。 */
 export type Row = Record<string, any>
@@ -42,8 +41,10 @@ CREATE TABLE IF NOT EXISTS lake_videos (
   pubdate     INTEGER,
   reply_count INTEGER,
   fetched_at  TEXT NOT NULL,
-  source      TEXT NOT NULL DEFAULT 'popular'
+  source      TEXT NOT NULL DEFAULT 'popular',
+  round_id    INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_lvideo_round ON lake_videos(round_id);
 
 CREATE TABLE IF NOT EXISTS lake_comments (
   rpid       INTEGER PRIMARY KEY,
@@ -134,7 +135,7 @@ CREATE TABLE IF NOT EXISTS memes (
   aliases   TEXT NOT NULL DEFAULT '[]',
   class     TEXT NOT NULL DEFAULT 'word',
   lineage   TEXT NOT NULL DEFAULT '{}',
-  platform  TEXT NOT NULL DEFAULT '["bilibili"]',
+  platform  TEXT NOT NULL DEFAULT '[]',
   state     TEXT NOT NULL DEFAULT 'observing',
   birth     TEXT NOT NULL DEFAULT '{}',
   matcher   TEXT,
@@ -189,47 +190,23 @@ CREATE TABLE IF NOT EXISTS induction_queue (
 );
 `
 
-/** v1→v2：FTS 文档重建为分词格式（unicode61 把连续汉字串当单 token）。 */
-function migrateV2ReindexFts(db: DatabaseSync): void {
-  const seg = (s: string) => (s ? segment(s).join(' ') : '')
-  const rows = db.prepare('SELECT id, name, aliases, card, examples FROM memes').all() as Row[]
-  for (const r of rows) {
-    const card = JSON.parse(r.card || '{}')
-    const aliases = JSON.parse(r.aliases || '[]')
-    const examples = JSON.parse(r.examples || '[]').concat(card.usage || [])
-    db.prepare('DELETE FROM memes_fts WHERE meme_id=?').run(r.id)
-    db.prepare('INSERT INTO memes_fts(meme_id,name,aliases,gist,examples) VALUES(?,?,?,?,?)')
-      .run(r.id, seg(r.name), seg(aliases.join(' ')), seg(card.gist || ''), seg(examples.join(' ')))
-  }
-}
-
-/** 打开（必要时创建）数据库并执行守卫与迁移。 */
+/** 打开（必要时创建）数据库并执行守卫；无迁移路径，版本不符一律拒收。 */
 export function connect(dbPath: string): DatabaseSync {
   const fresh = !exists(dbPath)
   if (fresh) mkdirSync(dirname(dbPath), { recursive: true })
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA journal_mode=WAL')
-  db.exec('PRAGMA foreign_keys=ON')
-  if (!fresh) {
-    const app = (db.prepare('PRAGMA application_id').get() as Row).application_id as number
-    if (app !== 0 && app !== APP_ID) {
-      db.close()
-      throw dbForeign(dbPath)
-    }
-  }
-  db.exec(`PRAGMA application_id=${APP_ID}`)
-  const ver = (db.prepare('PRAGMA user_version').get() as Row).user_version as number
-  if (ver > SCHEMA_VERSION) {
-    db.close()
-    throw dbForeign(`${dbPath} (user_version=${ver} > 支持版本 ${SCHEMA_VERSION})`)
-  }
-  if (ver < SCHEMA_VERSION) {
-    const hadTables = ver >= 1
+  if (fresh) {
     db.exec(DDL)
-    if (hadTables && SCHEMA_VERSION >= 2) {
-      migrateV2ReindexFts(db)
-    }
+    db.exec(`PRAGMA application_id=${APP_ID}`)
     db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`)
+    return db
+  }
+  const app = (db.prepare('PRAGMA application_id').get() as Row).application_id as number
+  const ver = (db.prepare('PRAGMA user_version').get() as Row).user_version as number
+  if (app !== APP_ID || ver !== SCHEMA_VERSION) {
+    db.close()
+    throw dbForeign(`${dbPath}（application_id=${app} user_version=${ver}）`)
   }
   return db
 }
@@ -257,9 +234,9 @@ export function kvSet(db: DatabaseSync, key: string, value: string): void {
     .run(key, value)
 }
 
+/** 空文件不算已建库（node:sqlite 会把 0 字节文件当新库打开）。 */
 function exists(path: string): boolean {
   try {
-    // node:sqlite 对空文件也视为新建库；与 Python 的 path.exists() 语义对齐要看大小
     return statSync(path).size > 0
   } catch {
     return false

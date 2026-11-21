@@ -1,13 +1,12 @@
 /**
- * 领域模型（zod）。JSON 键与 Python v0.2 的 pydantic 序列化逐键一致——
- * 库内 JSON blob 双端可直接共享；`class` 是保留字但合法属性名，直接用。
+ * 领域模型（zod）。`class` 是保留字但合法属性名，直接用。
  */
 import { z } from 'zod'
 
 export const KINDS = ['word', 'formula', 'format', 'interaction', 'event', 'derived'] as const
 export const MEME_STATES = ['observing', 'active', 'fading', 'tombstone'] as const
 export const CAND_STATES = ['pending', 'triggered', 'inducted', 'rejected'] as const
-export const CHANNELS = ['phrase', 'skeleton', 'image', 'chain', 'copy'] as const
+export const CHANNELS = ['phrase', 'skeleton', 'image', 'copy'] as const
 
 /** 无损 JSON 值（canonical value 的载荷元素）。 */
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
@@ -17,7 +16,7 @@ export type Kind = (typeof KINDS)[number]
 export type MemeState = (typeof MEME_STATES)[number]
 export type CandState = (typeof CAND_STATES)[number]
 
-/** 本地时间戳（与 Python time.strftime("%Y-%m-%dT%H:%M:%S") 同构）。 */
+/** 本地时间戳（本地日界对 B站活跃时段更有意义；同格式词法可比）。 */
 export function nowIso(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
@@ -119,7 +118,7 @@ export const MemeSchema = z.object({
   aliases: z.array(z.string()).default([]),
   class: z.enum(KINDS).default('word'),
   lineage: LineageSchema.default({}),
-  platform: z.array(z.string()).default(['bilibili']),
+  platform: z.array(z.string()).default([]),
   state: z.enum(MEME_STATES).default('observing'),
   birth: BirthSchema.default({}),
   matcher: MatcherSpecSchema.nullable().default(null),
@@ -128,7 +127,7 @@ export const MemeSchema = z.object({
   drift: z.array(DriftEntrySchema).default([]),
   stats: MemeStatsSchema.default({}),
   wild_rounds: z.array(z.number().int()).default([]),
-  /** 复活确认流计数：0 正常 / 1 首次 show 见最小卡 / 2 已确认过一次。必须 int——bool 会把 2 塌缩。 */
+  /** 复活确认流：0 正常 / 1 待确认（show 时先给最小卡）/ 2 已确认。 */
   revived_pending: z.number().int().default(0),
   created_at: z.string().default(() => nowIso()),
   updated_at: z.string().default(() => nowIso()),
@@ -174,14 +173,4 @@ export type InductionOutput = z.infer<typeof InductionOutputSchema>
 /** 词条名 + 别名（匹配与重名检查用的词表）。 */
 export function termsOf(m: Meme): string[] {
   return [m.name, ...m.aliases]
-}
-
-/** 宽松 JSON 解析：坏数据回落默认值（读路径永不因存量脏数据崩溃）。 */
-export function parseJson<T>(raw: string | null | undefined, schema: z.ZodType<T>, fallback: T): T {
-  if (!raw) return fallback
-  try {
-    return schema.parse(JSON.parse(raw))
-  } catch {
-    return fallback
-  }
 }

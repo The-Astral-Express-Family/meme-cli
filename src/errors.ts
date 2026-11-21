@@ -74,6 +74,6 @@ export const budgetExceeded = (queued: number): MemeError => new MemeError(
 
 export const dbForeign = (path: string): MemeError => new MemeError(
   'MEME_DB_FOREIGN',
-  `数据库文件不是 meme 库或版本过新：${path}`,
-  '检查 dbPath 配置是否指向了 meme 创建的库文件。',
+  `数据库文件不是本版本创建的梗库：${path}`,
+  'schema 无迁移路径：删除该文件重建，或把 db_path 指向新库。',
 )

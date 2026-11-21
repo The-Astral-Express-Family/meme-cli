@@ -1,5 +1,5 @@
 /**
- * 分词门面：@node-rs/jieba 单例包装（Python 侧 jieba.lcut / posseg.lcut 的等价物）。
+ * 分词门面：@node-rs/jieba 单例包装（cut 分词 / segmentTagged 词性标注）。
  * 集中在此便于全局替换与测试注入。
  */
 import { Jieba } from '@node-rs/jieba'

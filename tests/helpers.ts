@@ -68,8 +68,8 @@ export function fakeFetchRound(
   }
 }
 
-/** 直灌原始湖（绕过网络），并登记视频元数据。多轮 seed 用不同 rpidBase 防冲突。
- * aids 给定时按 zip 语义截断（与 Python 版一致）。 */
+/** 直灌原始湖（绕过网络），并登记视频元数据（junk 标题，需要真标题时自行覆盖）。
+ * 多轮 seed 用不同 rpidBase 防冲突。aids 给定时按 zip 语义截断。 */
 export function seedComments(
   db: ReturnType<typeof connect>, texts: string[], aids?: number[], roundId = 1, daysAgo = 0, rpidBase = 50000,
 ): void {
@@ -83,12 +83,12 @@ export function seedComments(
     'INSERT OR IGNORE INTO lake_comments(rpid,oid,root,parent,mid,message,ctime,likes,fetched_at,round_id) VALUES(?,?,?,?,?,?,?,?,?,?)',
   )
   const insV = db.prepare(
-    'INSERT OR IGNORE INTO lake_videos(aid,bvid,title,rid,up_mid,up_name,pubdate,reply_count,fetched_at,source) VALUES(?,?,?,?,?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO lake_videos(aid,bvid,title,rid,up_mid,up_name,pubdate,reply_count,fetched_at,source,round_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
   )
   for (let i = 0; i < n; i++) {
     const aid = finalAids[i]
     insC.run(rpidBase + i, aid, 0, 0, 9000 + i, texts[i], Math.floor(Date.now() / 1000) - daysAgo * 86400, i, iso, roundId)
-    insV.run(aid, `BV${i}`, `视频${aid}`, 119, 7000 + (aid % 5), `up${aid % 5}`, 0, 100, iso, 'test')
+    insV.run(aid, `BV${i}`, '', 119, 7000 + (aid % 5), `up${aid % 5}`, 0, 100, iso, 'test', roundId)
   }
 }
 

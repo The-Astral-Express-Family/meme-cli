@@ -2,7 +2,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from './db.ts'
 import {
-  MemeSchema, type Meme, nowIso, parseJson,
+  MemeSchema, MatcherSpecSchema, type Meme, nowIso,
 } from './models.ts'
 import { segment } from './tokenize.ts'
 
@@ -36,7 +36,7 @@ export function fromRow(row: Row): Meme {
     platform: JSON.parse(row.platform || '[]'),
     state: row.state,
     birth: JSON.parse(row.birth || '{}'),
-    matcher: parseJson(row.matcher ?? null, MemeSchema.shape.matcher, null),
+    matcher: row.matcher ? MatcherSpecSchema.parse(JSON.parse(row.matcher)) : null,
     card: JSON.parse(row.card || '{}'),
     examples: JSON.parse(row.examples || '[]'),
     drift: JSON.parse(row.drift || '[]'),

@@ -8,7 +8,8 @@ import { save as saveMeme } from '../src/entries.ts'
 import { makeMeme, matcher, constraints, pattern } from './test-matchers.test.ts'
 import { searchFts } from '../src/retrieve/fts.ts'
 import { hybridSearch } from '../src/retrieve/fuse.ts'
-import { validateAndCompile, ValueError } from '../src/induct/compileMatcher.ts'
+import { validateAndCompile, MatcherError } from '../src/induct/compileMatcher.ts'
+import { MemeError } from '../src/errors.ts'
 import * as notes from '../src/notes.ts'
 import * as candidates from '../src/candidates.ts'
 import { connect, APP_ID } from '../src/db.ts'
@@ -30,27 +31,13 @@ describe('FTS', () => {
     expect(hits.some(([mid]) => mid === 'm_0100')).toBe(true)
   })
 
-  it('v1 存量库（未分词 FTS 文档）升 v2 时自动重建索引', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'meme-mig-'))
+  it('旧版/异构库一律拒收（schema 无迁移路径）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'meme-fgn-'))
     const dbPath = join(dir, 'old.db')
-    const card = JSON.stringify({ gist: '你这瓜保熟吗' })
     const sqlite = new DatabaseSync(dbPath)
-    sqlite.exec(
-      'CREATE TABLE memes(id TEXT PRIMARY KEY, name TEXT, aliases TEXT, class TEXT,'
-      + 'lineage TEXT, platform TEXT, state TEXT, birth TEXT, matcher TEXT, card TEXT,'
-      + 'examples TEXT, drift TEXT, stats TEXT, wild_rounds TEXT, revived_pending INTEGER,'
-      + 'created_at TEXT, updated_at TEXT);'
-      + "CREATE VIRTUAL TABLE memes_fts USING fts5(meme_id UNINDEXED, name, aliases, gist, examples, tokenize='unicode61');"
-      + `INSERT INTO memes VALUES('m_0001','华强买瓜','[]','word','{}','["bilibili"]','observing','{}',NULL,'${card}','[]','[]','{}','[]',0,'x','x');`
-      + "INSERT INTO memes_fts VALUES('m_0001','华强买瓜','','你这瓜保熟吗','');" // v1 未分词原文
-      + `PRAGMA application_id=${APP_ID};`
-      + 'PRAGMA user_version=1;',
-    )
+    sqlite.exec('CREATE TABLE t(x); PRAGMA application_id=0x4D454D45; PRAGMA user_version=3;')
     sqlite.close()
-    const db = connect(dbPath) // 打开即触发 v1→v2 迁移
-    const hits = searchFts(db, '华强', 5)
-    expect(hits.some(([mid]) => mid === 'm_0001')).toBe(true)
-    db.close()
+    expect(() => connect(dbPath)).toThrow(MemeError)
     rmSync(dir, { recursive: true, force: true })
   })
 })
@@ -58,12 +45,12 @@ describe('FTS', () => {
 describe('matcher 校验', () => {
   it('纯槽位/空 token 模式被拒（曾编译出匹配一切的正则）', () => {
     const mk = (tokens: string[]) => matcher([pattern({ kind: 'skeleton', tokens })])
-    expect(() => validateAndCompile(mk(['<any>']))).toThrow(ValueError)
-    expect(() => validateAndCompile(mk(['<ent>', '<ent>']))).toThrow(ValueError)
-    expect(() => validateAndCompile(mk(['']))).toThrow(ValueError)
+    expect(() => validateAndCompile(mk(['<any>']))).toThrow(MatcherError)
+    expect(() => validateAndCompile(mk(['<ent>', '<ent>']))).toThrow(MatcherError)
+    expect(() => validateAndCompile(mk(['']))).toThrow(MatcherError)
     expect(() => validateAndCompile(matcher([pattern({
       kind: 'interaction', trigger_tokens: [''], response_terms: ['对'],
-    })]))).toThrow(ValueError)
+    })]))).toThrow(MatcherError)
     // 合法模式不受影响
     const spec = validateAndCompile(matcher([pattern({ kind: 'skeleton', tokens: ['一眼', '<ent>'] })]))
     expect(spec.patterns[0].tokens).toEqual(['一眼', '<ent>'])

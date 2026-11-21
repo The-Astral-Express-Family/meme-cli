@@ -50,7 +50,7 @@ describe('接龙通道', () => {
     expect(cand!.distinct_videos).toBe(2)
     expect(cand!.evidence_usages.length).toBeGreaterThan(0)
     expect(cand!.evidence_usages.every((u) => u.chain), '拼接来源未标记 chain').toBe(true)
-    expect(candidates.allActive(env.db).some((c) => c.channel === 'chain')).toBe(false)
+    expect(cand!.channel).toBe('phrase') // 拼接走普通通道，没有独立 chain 通道
     expect(res.scanned).toBe(13) // 10 条真实评论 + 3 个拼接单元
   })
 })

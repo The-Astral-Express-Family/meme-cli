@@ -6,17 +6,11 @@ export function commentsForRound(db: DatabaseSync, roundId: number): Row[] {
   return db.prepare('SELECT * FROM lake_comments WHERE round_id=? ORDER BY ctime').all(roundId) as Row[]
 }
 
-/**
- * 本轮采集到的视频标题。lake_videos 无 round_id（与 Python v0.2 共库），
- * 以本轮 surf_runs.started_at 为界取 fetched_at——被重爬（≥3 天冷却后）的
- * 老视频标题会再次入场：标题仍在挂着，仍是活证据。
- */
+/** 本轮采集到的视频标题（重爬即换轮次归属：标题仍挂着就仍是活证据）。 */
 export function titlesForRound(db: DatabaseSync, roundId: number): Array<{ aid: number; title: string; pubdate: number }> {
-  const run = db.prepare('SELECT started_at FROM surf_runs WHERE round_id=?').get(roundId) as Row | undefined
-  if (!run?.started_at) return []
   return (db.prepare(
-    "SELECT aid, title, pubdate FROM lake_videos WHERE fetched_at >= ? AND title != ''",
-  ).all(run.started_at as string) as Row[]).map((r) => ({
+    "SELECT aid, title, pubdate FROM lake_videos WHERE round_id=? AND title != ''",
+  ).all(roundId) as Row[]).map((r) => ({
     aid: r.aid as number, title: r.title as string, pubdate: Number(r.pubdate ?? 0),
   }))
 }

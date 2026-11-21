@@ -23,7 +23,7 @@ import {
 import * as budget from './budget.ts'
 import * as prompts from './prompts.ts'
 import { backtestToDict, runBacktest, type BacktestResult } from './backtest.ts'
-import { validateAndCompile, ValueError } from './compileMatcher.ts'
+import { validateAndCompile, MatcherError } from './compileMatcher.ts'
 import type { LlmClient } from './llm.ts'
 import { modelFor, triage } from './triage.ts'
 
@@ -101,7 +101,7 @@ function parseMatcher(rawText: string): MatcherSpec {
   const data = extractJson(rawText) as Record<string, unknown>
   const target = 'matcher' in data ? data.matcher : data
   const parsed = MatcherSpecSchema.safeParse(target)
-  if (!parsed.success) throw new ValueError(parsed.error.message)
+  if (!parsed.success) throw new MatcherError(parsed.error.message)
   return parsed.data
 }
 

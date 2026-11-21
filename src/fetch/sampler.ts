@@ -103,12 +103,12 @@ async function collectVideos(
   return videos
 }
 
-function insertVideo(db: DatabaseSync, v: bili.VideoRow): void {
+function insertVideo(db: DatabaseSync, v: bili.VideoRow, roundId: number): void {
   db.prepare(
-    'INSERT INTO lake_videos(aid,bvid,title,rid,up_mid,up_name,pubdate,reply_count,fetched_at,source) '
-    + 'VALUES(?,?,?,?,?,?,?,?,?,?) '
-    + 'ON CONFLICT(aid) DO UPDATE SET reply_count=excluded.reply_count, fetched_at=excluded.fetched_at',
-  ).run(v.aid, v.bvid, v.title, v.rid, v.up_mid, v.up_name, v.pubdate, v.reply_count, nowIso(), v.source)
+    'INSERT INTO lake_videos(aid,bvid,title,rid,up_mid,up_name,pubdate,reply_count,fetched_at,source,round_id) '
+    + 'VALUES(?,?,?,?,?,?,?,?,?,?,?) '
+    + 'ON CONFLICT(aid) DO UPDATE SET reply_count=excluded.reply_count, fetched_at=excluded.fetched_at, round_id=excluded.round_id',
+  ).run(v.aid, v.bvid, v.title, v.rid, v.up_mid, v.up_name, v.pubdate, v.reply_count, nowIso(), v.source, roundId)
 }
 
 /** 提取一条评论的图片：(url, w, h)。真实字段是 content.pictures（实探校准）。 */
@@ -253,7 +253,7 @@ export async function runFetch(
   const session = new BiliSession(cfg.delay_min, cfg.delay_max, cfg.timeout, sessdata, signal)
   const videos = await collectVideos(session, res, cfg, db)
   if ((probeExtra.length || cfg.probe_keywords) && !sessdata) {
-    console.error('meme: fetch: 搜索探测需要登录态（运行 meme login 或配置 sessdata_env），本轮跳过')
+    console.error('meme: fetch: 搜索探测需要登录态（运行 meme login），本轮跳过')
   }
   if (sessdata && (probeExtra.length || cfg.probe_keywords)) {
     // 搜索探测：登录态搜索关键词，定位承载梗浪的视频。定向词全量探测；热词按预算截断
@@ -340,7 +340,7 @@ async function pickAndCrawl(
   let imgBudget = cfg.comment_images_per_round
   for (const v of picked) {
     const isNew = !known.has(v.aid)
-    insertVideo(db, v)
+    insertVideo(db, v, roundId)
     if (isNew) res.new_videos += 1
     try {
       const [added, skipped, imgComments] = await fetchVideoComments(db, session, v.aid, cfg, roundId, isNew, minCtime)

@@ -1,3 +1,3 @@
-/** 语义版本与 SQLite schema 版本（数据格式与 Python v0.2 完全兼容）。 */
-export const VERSION = '0.6.0'
-export const SCHEMA_VERSION = 3
+/** 语义版本与 SQLite schema 版本（schema 无迁移路径，版本不符一律拒收旧库）。 */
+export const VERSION = '0.7.0'
+export const SCHEMA_VERSION = 1
