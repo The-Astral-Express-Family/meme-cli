@@ -46,13 +46,16 @@ export async function weeklyLatestNumber(s: BiliSession): Promise<number | null>
   return lst.length ? Number(lst[0].number) : null
 }
 
-export async function weekly(s: BiliSession, number: number): Promise<VideoRow[]> {
-  const data = await s.getJson<{ list?: Record<string, any>[] }>(`${API}/x/web-interface/popular/series/one`, { number })
+export async function weekly(s: BiliSession, signer: WbiSigner, number: number): Promise<VideoRow[]> {
+  // series/one 必须 wbi 签名（匿名裸参实测 -352）；series/list 无需签名
+  const params = await signer.sign({ number })
+  const data = await s.getJson<{ list?: Record<string, any>[] }>(`${API}/x/web-interface/popular/series/one`, params)
   return (data.list ?? []).map((v) => videoRow(v, 'weekly'))
 }
 
 export async function region(s: BiliSession, rid: number, page = 1, ps = 20): Promise<VideoRow[]> {
-  const data = await s.getJson<{ archives?: Record<string, any>[] }>(`${API}/x/dynamic/region`, { rid, ps, pn: page })
+  // 旧 x/dynamic/region 已退役（-400）；newlist（分区最新投稿）是同形替代，响应同为 data.archives
+  const data = await s.getJson<{ archives?: Record<string, any>[] }>(`${API}/x/web-interface/newlist`, { rid, ps, pn: page })
   return (data.archives ?? []).map((v) => videoRow(v, 'region'))
 }
 

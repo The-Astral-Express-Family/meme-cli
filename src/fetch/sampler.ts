@@ -59,7 +59,7 @@ async function collectVideos(
   if (cfg.weekly) {
     await grab('weekly', async () => {
       const n = await bili.weeklyLatestNumber(session)
-      return n ? bili.weekly(session, n) : []
+      return n ? bili.weekly(session, getSigner(), n) : []
     })
   }
   if (cfg.feed) {
