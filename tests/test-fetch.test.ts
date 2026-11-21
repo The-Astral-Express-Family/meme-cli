@@ -1,5 +1,5 @@
 /** 获取器回归：游标翻页、年龄闸门、图片字段、推荐流解析。 */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { fetchVideoComments, insertComment, replyImages } from '../src/fetch/sampler.ts'
 import { feedRcmd } from '../src/fetch/bilibili.ts'
@@ -96,5 +96,54 @@ describe('推荐流解析', () => {
     expect(out[0].reply_count).toBe(0) // 推荐流无 reply 字段
     expect(out[1].aid).toBe(333) // aid 键回退兼容
     expect(calls).toBe(1)
+  })
+})
+
+// ---- buvid 引导（回归：bootstrap 曾经 getJson 重入自身，surf 必挂死） ----
+
+describe('BiliSession 引导', () => {
+  it('引导单飞且不重入：spi 恰好一次，业务请求各一次', async () => {
+    const { BiliSession } = await import('../src/fetch/http.ts')
+    const { vi } = await import('vitest')
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      urls.push(String(url))
+      return new Response(JSON.stringify({ code: 0, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    try {
+      const s = new BiliSession(0, 0, 5)
+      await Promise.all([s.getJson('https://api.bilibili.com/x/a'), s.getJson('https://api.bilibili.com/x/b')])
+      expect(urls.filter((u) => u.includes('finger/spi'))).toHaveLength(1) // 并发共享一次引导
+      expect(urls.filter((u) => u.endsWith('/x/a'))).toHaveLength(1)
+      expect(urls.filter((u) => u.endsWith('/x/b'))).toHaveLength(1)
+      await s.getJson('https://api.bilibili.com/x/c')
+      expect(urls.filter((u) => u.includes('finger/spi'))).toHaveLength(1) // 引导完成后不再引导
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('引导失败不致命：业务请求照常发出', async () => {
+    const { BiliSession } = await import('../src/fetch/http.ts')
+    const { vi } = await import('vitest')
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+      if (String(url).includes('finger/spi')) {
+        return new Response('oops', { status: 500 })
+      }
+      return new Response(JSON.stringify({ code: 0, data: { ok: 1 } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }))
+    try {
+      const s = new BiliSession(0, 0, 5)
+      const data = await s.getJson<{ ok: number }>('https://api.bilibili.com/x/a')
+      expect(data.ok).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

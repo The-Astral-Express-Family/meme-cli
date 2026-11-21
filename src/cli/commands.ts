@@ -410,7 +410,7 @@ export const COMMANDS: Record<string, CmdDef> = {
     desc: '收录新梗：entry 路径（--entry-file/--entry-json，亲写词条，零外部 LLM）优先；--cid/--text 走外部归纳器（需凭证）。重名报 MEME_DUPLICATE 引导 iterate',
     opts: {
       cid: { type: 'string', desc: '候选 id（surf 输出的 c_NNNN）' },
-      text: { type: 'string', desc: '裸文本（新梗直收录，observing 入库）' },
+      text: { type: 'string', desc: '裸文本（走外部归纳器，需凭证）——亲写词条请用 --entry-file/--entry-json' },
       ctx: { type: 'string', desc: '裸文本的出处/上下文' },
       'entry-file': { type: 'string', desc: '词条 JSON 文件路径（主通道）' },
       'entry-json': { type: 'string', desc: '词条 JSON 内联（短 entry）' },

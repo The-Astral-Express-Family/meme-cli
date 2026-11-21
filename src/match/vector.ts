@@ -37,8 +37,9 @@ class FastembedEmbedder implements Embedder {
           const m = await mod.FlagEmbedding.init({ model: spec as never })
           this.model = m as unknown as NonNullable<typeof this.model>
           return true
-        } catch {
+        } catch (e) {
           this.failed = true
+          console.error(`meme: 向量模型加载失败，已降级纯词法（${e instanceof Error ? e.message : e}）`)
           return false
         }
       })()

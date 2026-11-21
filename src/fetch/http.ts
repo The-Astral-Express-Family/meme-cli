@@ -30,6 +30,7 @@ export class BiliSession {
   private readonly timeoutMs: number
   private readonly signal?: AbortSignal
   private buvidReady = false
+  private bootstrapping: Promise<void> | null = null
   private lastReq = 0
 
   constructor(delayMin = 0.8, delayMax = 1.5, timeout = 15, sessdata = '', signal?: AbortSignal) {
@@ -41,19 +42,29 @@ export class BiliSession {
     if (sessdata) this.cookies.set('SESSDATA', sessdata)
   }
 
-  /** 匿名 buvid 引导（部分接口无 cookie 会被风控）。失败不致命。 */
-  async bootstrap(): Promise<void> {
-    if (this.buvidReady) return
-    try {
-      const data = await this.getJson('https://api.bilibili.com/x/frontend/finger/spi')
-      for (const key of ['b_3', 'b_4']) {
-        const v = data?.[key]
-        if (typeof v === 'string' && v) this.cookies.set(key, v)
+  /**
+   * 匿名 buvid 引导（部分接口无 cookie 会被风控）。失败不致命。
+   * 单飞：并发请求共享同一次引导；引导自身走 request()，不得经 getJson 重入。
+   */
+  bootstrap(): Promise<void> {
+    if (this.buvidReady) return Promise.resolve()
+    this.bootstrapping ??= (async () => {
+      try {
+        const data = await this.request<Record<string, string>>(
+          'https://api.bilibili.com/x/frontend/finger/spi',
+        )
+        for (const key of ['b_3', 'b_4']) {
+          const v = data?.[key]
+          if (typeof v === 'string' && v) this.cookies.set(key, v)
+        }
+        this.buvidReady = true
+      } catch {
+        // 引导失败由后续请求自然暴露
+      } finally {
+        this.bootstrapping = null
       }
-      this.buvidReady = true
-    } catch {
-      // 引导失败由后续请求自然暴露
-    }
+    })()
+    return this.bootstrapping
   }
 
   private async polite(): Promise<void> {
@@ -68,8 +79,8 @@ export class BiliSession {
     return Object.entries(all).map(([k, v]) => `${k}=${v}`).join('; ')
   }
 
-  async getJson<T = Record<string, any>>(url: string, params?: Record<string, unknown>): Promise<T> {
-    await this.bootstrap()
+  /** 底层请求：礼貌延迟 + UA/Referer/Cookie + 超时 + Set-Cookie 吸收 + B站 code 校验。 */
+  private async request<T = Record<string, any>>(url: string, params?: Record<string, unknown>): Promise<T> {
     await this.polite()
     const u = new URL(url)
     for (const [k, v] of Object.entries(params ?? {})) {
@@ -90,6 +101,11 @@ export class BiliSession {
     for (const c of r.headers.getSetCookie?.() ?? []) this.absorbCookie(c)
     if (body.code !== 0) throw new FetchError(body.code ?? -1, body.message || 'unknown')
     return (body.data ?? {}) as T
+  }
+
+  async getJson<T = Record<string, any>>(url: string, params?: Record<string, unknown>): Promise<T> {
+    await this.bootstrap()
+    return this.request<T>(url, params)
   }
 
   /** 下载二进制（评论图片 CDN）。图床防盗链依赖 Referer。 */

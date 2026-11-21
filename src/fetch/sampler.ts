@@ -38,11 +38,14 @@ async function collectVideos(
 
   const grab = async (source: string, fn: () => Promise<bili.VideoRow[]>) => {
     try {
-      videos.push(...await fn())
+      const rows = await fn()
+      videos.push(...rows)
       res.sources_ok.push(source)
+      console.error(`meme: fetch: ${source} ✓ ${rows.length} 条`)
     } catch (e) {
       const code = e instanceof FetchError ? e.code : (e instanceof Error ? e.constructor.name : String(e))
       res.sources_failed.push(`${source}:${code}`) // 单源失败不拖垮整轮
+      console.error(`meme: fetch: ${source} ✗ ${code}`)
     }
   }
 
