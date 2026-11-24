@@ -54,6 +54,30 @@ describe('非极大短语抑制（计数证据，冻结前缀折叠）', () => {
 })
 
 describe('纯复制粘贴剪枝', () => {
+  it('同作者同句的骨架"模板"（广告复读）跨 2 视频 → skeleton 剪枝清除；多作者不误剪', async () => {
+    const adText = '最近发现一个还不错的AI中转站，分享给有需要的朋友。★推广链接见评论区置顶'
+    const mk = (aid: number, mid: number, rpid: number): UsageSample =>
+      ({ text: adText, aid, rpid, root: 0, parent: 0, mid, ctime: 0, chain: false })
+    // 单作者（广告号 mid=888）同句跨 2 视频——RunFast API 广告成模板的形态
+    await candidates.upsertFromSignal(env.db, {
+      head: '<X>分享给有需要的朋友', channel: 'skeleton', kind_guess: 'formula',
+      usages: [mk(3301, 888, 1), mk(3302, 888, 2)],
+      video_pairs: [{ aid: 3301, up_mid: 11 }, { aid: 3302, up_mid: 12 }],
+      day: '2026-11-22', round_id: 1,
+    })
+    // 多作者同句（复读信号骨架，不剪——copy 通道领地由其自行承载）
+    await candidates.upsertFromSignal(env.db, {
+      head: '<X>分享给有需要的朋友<X>', channel: 'skeleton', kind_guess: 'formula',
+      usages: [mk(3401, 101, 3), mk(3402, 202, 4)],
+      video_pairs: [{ aid: 3401, up_mid: 13 }, { aid: 3402, up_mid: 14 }],
+      day: '2026-11-22', round_id: 1,
+    })
+    const res = candidates.hygienePass(env.db)
+    expect(res.pruned_spam).toBe(1)
+    expect(candidates.byHead(env.db, '<X>分享给有需要的朋友'), '广告骨架留在池里').toBeNull()
+    expect(candidates.byHead(env.db, '<X>分享给有需要的朋友<X>'), '多作者骨架被误剪').not.toBeNull()
+  })
+
   it('同一作者同一句跨 3 视频 → phrase 切片删净；不同用户的相同短句不误剪', async () => {
     const spam = '想找个帮我打里号的吗，一个月一千'
     const insC = env.db.prepare(

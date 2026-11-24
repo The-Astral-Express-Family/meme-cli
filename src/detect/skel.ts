@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { segment } from '../tokenize.ts'
 
 export const RE_SUB =
-  /(https?:\/\/\S+|www\.\S+|b23\.tv\/\S+|bilibili\.com\/\S+|\bBV[0-9A-Za-z]{9,11}\b|\[[^[\]\s]{1,12}\]|@[^\s@：:，,。！？~]{1,30})/g
+  /(https?:\/\/\S+|www\.\S+|b23\.tv\/\S+|bilibili\.com\/\S+|\bBV[0-9A-Za-z]{9,11}\b|\[[^[\]\r\n]{1,128}\]|@[^\s@：:，,。！？~]{1,30})/g
 export const RE_NUMTOK = /^[0-9０-９]+([.,，][0-9０-９]+)*[%％]?$/
 export const RE_CJK = /[\u4e00-\u9fff]/
 const RE_LATIN = /^[A-Za-z]{3,}$/

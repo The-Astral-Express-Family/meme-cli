@@ -2,6 +2,8 @@
  * 向量层：fastembed 本地小模型（无 torch 级依赖）+ 暴力余弦。
  * 模型不可用（离线/下载失败）时优雅降级为纯词法，向量层返回不可用标记。
  */
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { UsageSample } from '../models.ts'
 
 /** 归一化向量（L2）矩阵；不可用时返回 null。 */
@@ -33,8 +35,11 @@ class FastembedEmbedder implements Embedder {
         try {
           const mod = await import('fastembed')
           const spec = resolveModel(mod.EmbeddingModel, this.modelSpec)
-          // 枚举值为字符串字面量联合；经名字解析后的 string 直接透传
-          const m = await mod.FlagEmbedding.init({ model: spec as never })
+          // 枚举值为字符串字面量联合；经名字解析后的 string 直接透传。
+          // cacheDir 固定到 ~/.meme/model_cache——fastembed 默认用 CWD 相对的
+          // local_cache，CLI 从任意目录启动时会重复下载
+          const cacheDir = join(homedir(), '.meme', 'model_cache')
+          const m = await mod.FlagEmbedding.init({ model: spec as never, cacheDir })
           this.model = m as unknown as NonNullable<typeof this.model>
           return true
         } catch (e) {
@@ -99,6 +104,9 @@ export function getEmbedder(modelName = 'BAAI/bge-small-zh-v1.5'): Embedder {
       console.error(`meme: 向量模型 ${modelName} 首次使用时加载；失败则降级纯词法`)
     }
     instance = new FastembedEmbedder(modelName)
+    // 预热：立即开始后台加载（否则 available 在首次 embed 前恒为 false，
+    // 调用方的 available 检查会永远跳过向量层）
+    void instance.embed(['预热'])
   }
   return instance
 }

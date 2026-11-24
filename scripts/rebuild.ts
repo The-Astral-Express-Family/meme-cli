@@ -9,8 +9,8 @@
  *   npx tsx scripts/rebuild.ts --apply         # 对真实库（~/.meme/memes.db）就地重建
  *   npx tsx scripts/rebuild.ts --db <path> --apply
  *
- * 保留的运维状态：curation 记录（operator 手拒 / inducted 词条的候选标记
- * 重建后按 head+channel 复原）、meme_hit_daily（词条命中日聚合，与候选无关）、
+ * 保留的运维状态：curation 记录（已收录词条的候选标记重建后按 head+channel
+ * 复原）、meme_hit_daily（词条命中日聚合，与候选无关）、
  * kv（generic_auto 封禁表、轮次序号）。
  */
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
@@ -20,8 +20,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { connect } from '../src/db.ts'
 import { resolveConfig } from '../src/config.ts'
 import { updateSignals } from '../src/detect/signals.ts'
-import { transitionCandidates } from '../src/lifecycle.ts'
-import { reject } from '../src/candidates.ts'
+import { transitionCandidates, reapCandidates } from '../src/lifecycle.ts'
 
 const args = process.argv.slice(2)
 const flag = (name: string): string | undefined => {
@@ -44,13 +43,12 @@ if (!apply) {
 const db = connect(target)
 const raw = db as unknown as DatabaseSync
 
-// 1) 抢救 curation 状态（清表后按 head+channel 复原）
-type Curation = { head: string; channel: string; reason: string }
+// 1) 抢救已收录标记（清表后按 head+channel 复原）
+type Curation = { head: string; channel: string }
 const curated = (raw.prepare(
-  "SELECT head, channel, COALESCE(reject_reason,'operator') AS reason FROM candidates "
-  + "WHERE state IN ('rejected','inducted') AND reject_reason IN ('operator','inducted')",
-).all() as Array<{ head: string; channel: string; reason: string }>).map(
-  (r): Curation => ({ head: r.head, channel: r.channel, reason: r.reason }),
+  "SELECT head, channel FROM candidates WHERE state='inducted' AND reject_reason='inducted'",
+).all() as Array<{ head: string; channel: string }>).map(
+  (r): Curation => ({ head: r.head, channel: r.channel }),
 )
 console.log(`curation 复原清单：${curated.length} 条（${curated.map((c) => c.head).join(', ')}）`)
 
@@ -68,25 +66,27 @@ console.log(`重放轮次：${rounds.join(' → ')}`)
 let totals = { merged: 0, pruned: 0 }
 for (const rid of rounds) {
   const sig = await updateSignals(db, cfg, rid)
-  const trans = transitionCandidates(raw, cfg.lifecycle, rid)
+  const trans = await transitionCandidates(raw, cfg, rid)
+  const reap = reapCandidates(raw, cfg.lifecycle, rid)
   totals.merged += sig.merged
   totals.pruned += sig.pruned_spam
   console.log(
     `  r${rid}: scanned=${sig.scanned} phrase=${sig.phrase_candidates} skel=${sig.skeleton_candidates} `
-    + `merged=${sig.merged} pruned=${sig.pruned_spam} triggered=${trans.triggered.length} expired=${trans.expired.length}`,
+    + `merged=${sig.merged} pruned=${sig.pruned_spam} triggered=${trans.triggered.length} demoted=${trans.demoted.length} `
+    + `reaped=${reap.low_value + reap.dead}`,
   )
 }
 
-// 4) 复原 curation：重建后再拒（candidate 行是新 cid，按 head+channel 匹配）
+// 4) 复原已收录标记：重建后按原理由恢复 inducted
 const rows = raw.prepare("SELECT cid, head, channel FROM candidates WHERE state IN ('pending','triggered')").all() as Array<{ cid: string; head: string; channel: string }>
 let restored = 0
 for (const c of curated) {
   const row = rows.find((r) => r.head === c.head && r.channel === c.channel)
   if (!row) continue
-  reject(raw, row.cid, c.reason)
+  raw.prepare("UPDATE candidates SET state='inducted', reject_reason='inducted' WHERE cid=?").run(row.cid)
   restored++
 }
-console.log(`curation 复原：${restored}/${curated.length} 条已按原理由再拒`)
+console.log(`curation 复原：${restored}/${curated.length} 条已恢复 inducted`)
 
 // 5) 汇总
 const states = raw.prepare('SELECT state, COUNT(*) c FROM candidates GROUP BY state').all() as Array<{ state: string; c: number }>

@@ -5,6 +5,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { randomNegativeComments, makeRng } from '../lake.ts'
 import { CompiledMatcher, matchCompiled } from '../match/pipeline.ts'
+import { matchTokensTerms } from '../match/skeleton.ts'
 import type { Meme } from '../models.ts'
 
 /** 含"上句：X 本句：Y"标记的文本拆为会话上下文（交互梗的对话式例句曾是单行文本，无 ctx 则 tier 3 永不触发）。 */
@@ -72,21 +73,33 @@ export function runBacktest(
     holdout_size: 0, hits: 0, hit_rate: 0, negatives: 0,
     false_positives: 0, fp_rate: 0, passed: false, missed: [], false_hits: [],
   }
-  let texts = positiveTexts.filter((t) => t && t.trim())
-  let holdoutTexts: string[]
-  if (opts.holdout_texts) {
-    holdoutTexts = opts.holdout_texts.filter((t) => t && t.trim())
+  const pairedPositives: Array<[string, string[] | null]> = positiveTexts
+    .map((t, i) => [t, opts.holdout_ctx?.[i] ?? null] as [string, string[] | null])
+    .filter(([t]) => Boolean(t && t.trim()))
+  let holdoutPairs: Array<[string, string[] | null]>
+  if (opts.holdout_texts != null) {
+    holdoutPairs = opts.holdout_texts
+      .map((t, i) => [t, opts.holdout_ctx?.[i] ?? null] as [string, string[] | null])
+      .filter(([t]) => Boolean(t && t.trim()))
   } else {
     // 确定性洗牌（mulberry32）：同种子同切分
     const rnd = makeRng(seed)
-    for (let i = texts.length - 1; i > 0; i--) {
+    for (let i = pairedPositives.length - 1; i > 0; i--) {
       const j = Math.floor(rnd() * (i + 1))
-      ;[texts[i], texts[j]] = [texts[j], texts[i]]
+      ;[pairedPositives[i], pairedPositives[j]] = [pairedPositives[j], pairedPositives[i]]
     }
-    const nHold = texts.length ? Math.max(1, Math.floor(texts.length * holdout)) : 0
-    holdoutTexts = texts.slice(0, nHold)
+    const nHold = pairedPositives.length ? Math.max(1, Math.floor(pairedPositives.length * holdout)) : 0
+    holdoutPairs = pairedPositives.slice(0, nHold)
   }
-  const [ht, hc] = splitDialogue(holdoutTexts, opts.holdout_ctx ?? null)
+  let [ht, hc] = splitDialogue(holdoutPairs.map(([t]) => t), holdoutPairs.map(([, ctx]) => ctx))
+  const interaction = meme.class === 'interaction' || meme.matcher?.patterns.some((p) => p.kind === 'interaction')
+  if (interaction) {
+    const pairs = ht.map((t, i) => [t, hc[i] ?? null] as [string, string[] | null]).filter(([t, ctx]) =>
+      Boolean(ctx && (meme.matcher?.patterns ?? []).some((p) => p.kind === 'interaction'
+        && matchTokensTerms(ctx[0], p.trigger_tokens, p.trigger_terms))))
+    ht = pairs.map(([t]) => t)
+    hc = pairs.map(([, ctx]) => ctx)
+  }
   res.holdout_size = ht.length
   ht.forEach((t, i) => {
     const ctx = hc[i] ?? null
@@ -96,9 +109,14 @@ export function runBacktest(
   })
   res.hit_rate = res.holdout_size ? res.hits / res.holdout_size : 0
 
-  // 负例 = 不含该梗本体（名字/别名）的评论——不能按全部模式词排除，
-  // 否则泛用模式词（如"的"）会把负例语料掏空，误报门形同虚设
-  const exclude = [meme.name, ...meme.aliases]
+  // 负例既不含梗名/别名，也不含任何已知正例、留出文本及其会话上下文，避免正负例重叠。
+  const knownTexts = new Set([
+    ...positiveTexts,
+    ...(opts.holdout_texts ?? []),
+    ...ht,
+    ...hc.flatMap((ctx) => ctx ?? []),
+  ])
+  const exclude = [...new Set([meme.name, ...meme.aliases, ...knownTexts])]
   const negs = randomNegativeComments(db, negatives, exclude, seed)
   res.negatives = negs.length
   for (const t of negs) {

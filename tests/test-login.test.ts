@@ -13,7 +13,7 @@ async function driveScanPage(url: string, maxPolls = 20): Promise<void> {
   if (!qr.ok) throw new Error('qr failed')
   for (let i = 0; i < maxPolls; i++) {
     const d = await (await fetch(`${url}api/poll?key=${encodeURIComponent(qr.key)}`)).json() as { code: number }
-    if (d.code === 0) return
+    if (d.code !== 86101 && d.code !== 86090) return
     await new Promise((r) => setTimeout(r, 150))
   }
   throw new Error('poll never succeeded')
@@ -62,7 +62,7 @@ describe('meme login', () => {
 
     const out = await runLogin({
       credentialsFile: credFile, timeoutMs: 15_000, openBrowser: false,
-      onReady: (url) => void driveScanPage(url),
+      onReady: driveScanPage,
     })
     expect(out.ok).toBe(true)
     expect(out.uname).toBe('测试用户')
@@ -127,7 +127,7 @@ describe('meme login', () => {
     }))
     const out = await runLogin({
       credentialsFile: credFile, timeoutMs: 15_000, openBrowser: false,
-      onReady: (url) => void driveScanPage(url),
+      onReady: driveScanPage,
     })
     expect(out.ok).toBe(true)
     const creds = JSON.parse(readFileSync(credFile, 'utf8')) as Record<string, unknown>
@@ -161,7 +161,7 @@ describe('meme login', () => {
     }))
     const out = await runLogin({
       credentialsFile: credFile, timeoutMs: 15_000, openBrowser: false,
-      onReady: (url) => void driveScanPage(url),
+      onReady: driveScanPage,
     })
     expect(out.ok).toBe(false)
     expect(out.error).toContain('SESSDATA')

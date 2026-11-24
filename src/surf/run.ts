@@ -5,7 +5,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
-import { kvGet, kvSet } from '../db.ts'
+import { kvGet, kvSet, tx } from '../db.ts'
 import * as candidates from '../candidates.ts'
 import * as entries from '../entries.ts'
 import * as lifecycle from '../lifecycle.ts'
@@ -13,38 +13,57 @@ import * as notes from '../notes.ts'
 import type { ResolvedConfig } from '../config.ts'
 import { resolveSessdata } from '../config.ts'
 import { updateSignals } from '../detect/signals.ts'
-import { candidateNotFound } from '../errors.ts'
+import { candidateNotFound, MemeError } from '../errors.ts'
+import { normalizeHead } from '../detect/evidence.ts'
 import { loadMatchers, scanTexts } from '../match/pipeline.ts'
 import { nowIso, todayIso } from '../models.ts'
+import { claimPendingIngest, reapLake } from '../lake.ts'
 import { runFetch, type FetchResult } from '../fetch/sampler.ts'
 import * as present from './present.ts'
 
-/** allow：豁免词写入 kv generic_allow（黑名单误杀的可逆逃生口）。 */
-export function handleAllow(db: DatabaseSync, words: string[]): string[] {
-  const cur = JSON.parse(kvGet(db, 'generic_allow', '[]') || '[]') as string[]
-  for (const w of words) if (!cur.includes(w)) cur.push(w)
-  kvSet(db, 'generic_allow', JSON.stringify(cur))
-  return words
+const stringList = (db: DatabaseSync, key: string): string[] => {
+  try {
+    const value = JSON.parse(kvGet(db, key, '[]') || '[]')
+    return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
+  } catch { return [] }
 }
 
-/** reject + ban：批量跳过候选；ban 时把词头沉淀为持久停用词。不存在的 cid 抛错（由工具层转稳定错误码）。 */
-export function handleReject(db: DatabaseSync, cids: string[], ban: boolean): { done: string[]; banned: string[] } {
-  const done: string[] = []
-  const banned: string[] = []
-  for (const cid of cids) {
-    if (!candidates.reject(db, cid, 'operator')) continue // 已出队：幂等跳过
-    done.push(cid)
-    if (!ban) continue
-    const cand = candidates.get(db, cid)
-    if (!cand?.head) continue
-    banned.push(cand.head)
-    const words = JSON.parse(kvGet(db, 'generic_auto', '[]') || '[]') as string[]
-    if (!words.includes(cand.head)) {
-      words.push(cand.head)
-      kvSet(db, 'generic_auto', JSON.stringify(words))
+/** allow：精确解除封禁，并保留对内置/配置停用词的可逆豁免。 */
+export function handleAllow(db: DatabaseSync, words: string[]): string[] {
+  const allowed = [...new Set(words.map(normalizeHead).filter(Boolean))]
+  if (!allowed.length) throw new MemeError('MEME_HEAD_INVALID', 'allow 至少需要一个非空词头', '传入要解除封禁的精确词头。')
+  tx(db, () => {
+    const bans = stringList(db, 'generic_auto').map(normalizeHead).filter((w) => !allowed.includes(w))
+    const exemptions = [...new Set([...stringList(db, 'generic_allow').map(normalizeHead), ...allowed])]
+    kvSet(db, 'generic_auto', JSON.stringify(bans))
+    kvSet(db, 'generic_allow', JSON.stringify(exemptions))
+    for (const row of db.prepare("SELECT cid, head FROM candidates WHERE state='rejected' AND reject_reason='banned'").all() as Row[]) {
+      if (allowed.includes(normalizeHead(row.head as string))) {
+        db.prepare("UPDATE candidates SET state='pending', rejected_at=NULL, reject_reason=NULL, updated_at=? WHERE cid=?")
+          .run(nowIso(), row.cid)
+      }
     }
-  }
-  return { done, banned }
+  })
+  return allowed
+}
+
+/** ban：精确归一化词头，跨 phrase/copy/skeleton/image 生效；不做子串或语义家族封禁。 */
+export function handleBan(db: DatabaseSync, words: string[]): string[] {
+  const banned = [...new Set(words.map(normalizeHead).filter(Boolean))]
+  if (!banned.length) throw new MemeError('MEME_HEAD_INVALID', 'ban 至少需要一个非空词头', '传入要封禁的精确词头。')
+  tx(db, () => {
+    const bans = [...new Set([...stringList(db, 'generic_auto').map(normalizeHead), ...banned])]
+    const exemptions = stringList(db, 'generic_allow').map(normalizeHead).filter((w) => !banned.includes(w))
+    kvSet(db, 'generic_auto', JSON.stringify(bans))
+    kvSet(db, 'generic_allow', JSON.stringify(exemptions))
+    const ts = nowIso()
+    for (const cand of candidates.allActive(db)) {
+      if (!banned.includes(normalizeHead(cand.head))) continue
+      db.prepare("UPDATE candidates SET state='rejected', rejected_at=?, reject_reason='banned', updated_at=? WHERE cid=?")
+        .run(ts, ts, cand.cid)
+    }
+  })
+  return banned
 }
 
 /** 已有词条野外频率复查：命中计数、变体提示、爆发上升、存活/复活转移。 */
@@ -107,38 +126,56 @@ function wildRecheck(db: DatabaseSync, cfg: ResolvedConfig, roundId: number): Ar
 function fadingZone(db: DatabaseSync, cfg: ResolvedConfig, changes: Array<{ id: string; name: string; from: string; to: string }>): string[] {
   const lines = changes.map((ch) => `${ch.id} ${ch.name}   ${ch.from} → ${ch.to}`)
   for (const m of entries.allMemes(db, ['fading'])) {
-    const series = entries.dailySeries(db, m.id, cfg.lifecycle.fade_window_days)
+    const series = lifecycle.hitSeries(db, m.id, cfg.lifecycle.fade_window_days)
     if (!series.some((x) => x > 0)) continue
     const peak = lifecycle.peakOf(series)
-    const cur = series.slice(-14).reduce((a, b) => a + b, 0) / 14
+    const recent = series.slice(-14)
+    const cur = recent.reduce((a, b) => a + b, 0) / recent.length
     if (peak > 0) {
       const drop = Math.max(0, 1 - cur / peak)
-      lines.push(`${m.id} ${m.name}   野外频率 ${cfg.lifecycle.fade_window_days}天 -${Math.round(drop * 100)}%`)
+      lines.push(`${m.id} ${m.name}   野外频率 ${cfg.lifecycle.fade_window_days}天窗 -${Math.round(drop * 100)}%（观测日口径）`)
     }
   }
   return lines.slice(0, 10)
 }
 
-/** --json 全量输出保险丝：候选队列治理靠过期+操作员，不该有兆级转储。 */
+/** --json 全量输出保险丝；当前过门条目不是永久待裁决队列。 */
 const FULL_DUMP_CAP = 1000
 
-function buildZones(db: DatabaseSync, cfg: ResolvedConfig, page: number, roundSize: number, full = false): Record<string, any> {
+/** 候选统一排序（score v2 → dv → id）。 */
+function rankedCandidates(db: DatabaseSync, cands: import('../models.ts').Candidate[]): import('../models.ts').Candidate[] {
+  return [...cands].sort((a, b) => {
+    const ka = present.orderKey(db, a)
+    const kb = present.orderKey(db, b)
+    return ka[0] - kb[0] || ka[1] - kb[1] || (ka[2] < kb[2] ? -1 : 1)
+  })
+}
+
+/** 当前窗口内已过触发门的条目；check 不落状态，故对 pending 也现场重算。 */
+async function currentQualified(
+  db: DatabaseSync, cfg: ResolvedConfig, currentRound: number, recompute: boolean,
+): Promise<import('../models.ts').Candidate[]> {
+  const awake = candidates.allActive(db)
+    .filter((c) => lifecycle.isAwake(c, currentRound, cfg.lifecycle.surf_survive_rounds))
+  const qualified: import('../models.ts').Candidate[] = []
+  for (const c of awake) {
+    if (recompute ? await lifecycle.candidateShouldTrigger(db, c, cfg.lifecycle, cfg) : c.state === 'triggered') qualified.push(c)
+  }
+  return rankedCandidates(db, qualified)
+}
+
+function buildZones(
+  db: DatabaseSync, cands: import('../models.ts').Candidate[],
+  page: number, roundSize: number, full = false,
+  flagMap: Map<string, import('../detect/evidence.ts').ScoreFlags> | null = null,
+  currentRound = 0,
+): Record<string, any> {
   const relatedNames = new Map(entries.allMemes(db).map((m) => [m.id, m.name] as const))
   let hot: string[] = []
-  try {
-    hot = JSON.parse(kvGet(db, 'surf_hotwords', '[]') || '[]')
-  } catch { /* 坏数据忽略 */ }
-  const cands = candidates.allActive(db)
-    .filter((c) => c.state === 'pending' || c.state === 'triggered')
-    .sort((a, b) => {
-      const ka = present.orderKey(a)
-      const kb = present.orderKey(b)
-      return ka[0] - kb[0] || ka[1] - kb[1] || (ka[2] < kb[2] ? -1 : 1)
-    })
+  try { hot = JSON.parse(kvGet(db, 'surf_hotwords', '[]') || '[]') } catch { /* 坏数据忽略 */ }
   let pageItems: typeof cands
   let hasMore: boolean
   if (full) {
-    // 机器输出不分页（agent 工效）：一次给全量候选，人类渲染才需要翻页
     pageItems = cands.slice(0, FULL_DUMP_CAP)
     hasMore = false
   } else {
@@ -146,29 +183,88 @@ function buildZones(db: DatabaseSync, cfg: ResolvedConfig, page: number, roundSi
     pageItems = cands.slice(start, start + roundSize)
     hasMore = start + roundSize < cands.length
   }
-  const triggered = cands.filter((c) => c.state === 'triggered')
-  const pending = cands.filter((c) => c.state === 'pending')
-  const backlogN = triggered.length
-  const backlogLine = backlogN >= cfg.lifecycle.backlog_alert
-    ? `积压候选 ${backlogN} 条待收录（triggered ${triggered.length}、pending ${pending.length}）`
-    : `待处理：triggered ${triggered.length}｜pending ${pending.length}`
   return {
-    counts: { new: cands.length, dynamics: 0, fading: 0, backlog: backlogN },
+    counts: { new: cands.length, dynamics: 0, fading: 0, backlog: 0 },
     hot_keywords: hot,
-    new_candidates: pageItems.map((c) => present.candLine(c, relatedNames)),
-    new_candidates_raw: pageItems.map((c) => present.candDict(c)),
+    new_candidates: pageItems.map((c) => present.candLine(db, c, relatedNames, flagMap?.get(c.cid) ?? null, true)),
+    new_candidates_raw: pageItems.map((c) => present.candDict(db, c, flagMap?.get(c.cid) ?? null, true)),
     dynamics: [] as string[],
     fading: [] as string[],
-    backlog_line: backlogLine,
-    backlog: { triggered: triggered.length, pending: pending.length, alert: backlogN >= cfg.lifecycle.backlog_alert },
+    backlog_line: `当前窗口过门 ${cands.length} 条；★只表示待人工判断`,
+    backlog: { triggered: cands.length, pending: 0, alert: false },
+    round: currentRound,
     page,
     has_more: hasMore,
   }
 }
 
+async function focusView(
+  db: DatabaseSync, cfg: ResolvedConfig, cand: import('../models.ts').Candidate, currentRound: number,
+): Promise<{ payload: Record<string, unknown>; human: string }> {
+  const vids = (db.prepare(
+    'SELECT v.aid AS aid, v.title AS title, v.up_name AS up_name FROM cand_video cv '
+    + 'JOIN lake_videos v ON v.aid=cv.aid WHERE cv.cid=? ORDER BY cv.ts DESC LIMIT 5',
+  ).all(cand.cid) as Row[]).map((r) => ({
+    aid: r.aid as number, title: r.title as string, up_name: (r.up_name as string | null) ?? undefined,
+  }))
+  const parentTexts = new Map<number, string>()
+  for (const parent of new Set(cand.evidence_usages.map((u) => u.parent).filter((p) => p > 0))) {
+    const row = db.prepare('SELECT message FROM lake_comments WHERE rpid=?').get(parent) as Row | undefined
+    if (row) parentTexts.set(parent, row.message as string)
+  }
+  const related = cand.related.map((r) => {
+    const m = entries.get(db, r.id)
+    return { id: r.id, type: r.type, score: r.score, name: m ? m.name : '?' }
+  })
+  const flags = await present.enrichFlags(db, cfg, [cand])
+  return {
+    payload: {
+      round: currentRound,
+      read_only: true,
+      candidate: {
+        ...present.candDict(db, cand, flags.get(cand.cid) ?? null),
+        evidence_usages: cand.evidence_usages.map((u) => ({
+          ...u, parent_text: u.parent > 0 ? parentTexts.get(u.parent) ?? null : null,
+        })),
+      },
+      videos: vids,
+      related,
+    },
+    human: present.renderFocus(cand, vids, related, parentTexts),
+  }
+}
+
+/** 只读检查：不写 surf_round、不认领 QQ、不收割、不写 kv，也不落触发状态。 */
+export async function runCheck(
+  db: DatabaseSync, cfg: ResolvedConfig,
+  opts: { focus?: string; page?: number; roundSize?: number } = {},
+): Promise<{ payload: Record<string, unknown>; human: string }> {
+  const roundSize = opts.roundSize ?? cfg.retrieval.round_size
+  const page = opts.page ?? 0
+  if (!Number.isInteger(roundSize) || roundSize <= 0) {
+    throw new MemeError('MEME_PAGE_INVALID', '--round-size 必须是正整数', '传入大于 0 的整数。')
+  }
+  if (!Number.isInteger(page) || page < 0) {
+    throw new MemeError('MEME_PAGE_INVALID', '--page 必须是非负整数', '传入大于等于 0 的整数。')
+  }
+  const currentRound = Number(kvGet(db, 'surf_round', '0') || 0)
+  if (opts.focus) {
+    const cand = candidates.get(db, opts.focus)
+    if (!cand || !lifecycle.isAwake(cand, currentRound, cfg.lifecycle.surf_survive_rounds)) throw candidateNotFound(opts.focus)
+    return focusView(db, cfg, cand, currentRound)
+  }
+  const qualified = await currentQualified(db, cfg, currentRound, true)
+  const pageItems = qualified.slice(page * roundSize, page * roundSize + roundSize)
+  const flagMap = await present.enrichFlags(db, cfg, pageItems)
+  const zones = buildZones(db, qualified, page, roundSize, false, flagMap, currentRound)
+  zones.read_only = true
+  return {
+    payload: zones,
+    human: '只读检查（未推进轮次）：\n' + present.renderZones(zones, present.pageFooter(page, zones.has_more, roundSize)),
+  }
+}
+
 export interface SurfOpts {
-  more?: boolean
-  focus?: string
   roundSize?: number
   noFetch?: boolean
   probe?: string[]
@@ -180,50 +276,16 @@ export interface SurfOpts {
 
 export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfOpts = {}): Promise<{ payload: Record<string, unknown>; human: string }> {
   const roundSize = opts.roundSize ?? cfg.retrieval.round_size
-  // focus：深入单个候选（不获取、不更新证据）
-  if (opts.focus) {
-    const cand = candidates.get(db, opts.focus)
-    if (!cand) throw candidateNotFound(opts.focus)
-    const vids = (db.prepare(
-      'SELECT v.aid AS aid, v.title AS title, v.up_name AS up_name FROM cand_video cv '
-      + 'JOIN lake_videos v ON v.aid=cv.aid WHERE cv.cid=? ORDER BY cv.ts DESC LIMIT 5',
-    ).all(cand.cid) as Row[]).map((r) => ({
-      aid: r.aid as number, title: r.title as string, up_name: (r.up_name as string | null) ?? undefined,
-    }))
-    const related = cand.related.map((r) => {
-      const m = entries.get(db, r.id)
-      return { id: r.id, type: r.type, score: r.score, name: m ? m.name : '?' }
-    })
-    return {
-      payload: {
-        round: Number(kvGet(db, 'surf_round', '0') || 0),
-        candidate: present.candDict(cand),
-        videos: vids,
-        related,
-      },
-      human: present.renderFocus(cand, vids, related),
-    }
-  }
-
-  if (opts.more) {
-    const roundId = Number(kvGet(db, 'surf_round', '0') || 0)
-    const page = Number(kvGet(db, 'surf_page', '0') || 0) + 1
-    kvSet(db, 'surf_page', String(page))
-    const zones = buildZones(db, cfg, page, roundSize)
-    return {
-      payload: zones,
-      human: present.renderZones(zones, present.pageFooter(page, zones.has_more, roundSize)),
-    }
-  }
-
   // ---- 新一轮 ----
   const run = db.prepare('INSERT INTO surf_runs(started_at, fetched) VALUES(?, 0)').run(nowIso())
   const roundId = Number(run.lastInsertRowid)
+  // 群聊消息认领：bot 桥接写入的 round_id=0 行并入本轮，与 B站采集同批计算
+  const claimed = claimPendingIngest(db, roundId)
 
   let fetchNote: string | null = null
   let fres: FetchResult | null = null
   if (opts.noFetch) {
-    fetchNote = '本轮 no_fetch（存量模式）'
+    fetchNote = '本轮不联网获取（--no-fetch），仍执行证据更新、状态重算与收割'
   } else {
     const doFetch = opts.fetch ?? runFetch
     fres = await doFetch(db, cfg.fetch, roundId, resolveSessdata(cfg), opts.probe ?? [], opts.signal)
@@ -236,15 +298,20 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
   const sig = await updateSignals(db, cfg, roundId)
   const dynamics = wildRecheck(db, cfg, roundId)
   const fadeChanges = lifecycle.checkFade(db, cfg.lifecycle)
-  const trans = lifecycle.transitionCandidates(db, cfg.lifecycle, roundId)
+  const trans = await lifecycle.transitionCandidates(db, cfg, roundId)
+  const reap = lifecycle.reapCandidates(db, cfg.lifecycle, roundId)
+  const lakeReaped = reapLake(db, roundId, cfg.lifecycle.surf_retention_rounds)
   notes.dedupe(db)
 
   kvSet(db, 'surf_round', String(roundId))
-  kvSet(db, 'surf_page', '0')
   kvSet(db, 'surf_hotwords', JSON.stringify(fres ? fres.hot_keywords : []))
 
-  const zones = buildZones(db, cfg, 0, roundSize, opts.full)
+  const qualified = await currentQualified(db, cfg, roundId, false)
+  const pageItems = qualified.slice(0, opts.full ? FULL_DUMP_CAP : roundSize)
+  const flagMap = await present.enrichFlags(db, cfg, pageItems.slice(0, 40))
+  const zones = buildZones(db, qualified, 0, roundSize, opts.full, flagMap, roundId)
   zones.round = roundId
+  zones.claimed = claimed
   zones.fetch = {
     new_videos: fres ? fres.new_videos : 0,
     new_comments: fres ? fres.new_comments : 0,
@@ -255,6 +322,8 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
   zones.degraded = fetchNote
   zones.signals = { ...sig }
   zones.candidate_transitions = trans
+  zones.reap = { ...reap, lake_comments: lakeReaped }
+  zones.counts.reap = reap.low_value + reap.dead
   zones.dynamics_raw = dynamics
   zones.dynamics = dynamics
     .slice(0, 10)

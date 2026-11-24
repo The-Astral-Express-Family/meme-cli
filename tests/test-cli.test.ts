@@ -43,6 +43,25 @@ describe('parser', () => {
     expect(() => parse(['q', '--nope'], COMMANDS.search)).toThrow(UsageError)
   })
 
+  it('add/iterate 的 cid 与 holdout-text 可重复，check/ban/allow 已注册', () => {
+    const p = parse(['--cid', 'c_1', '--cid', 'c_2', '--holdout-text', '甲', '--holdout-text', '乙', '--match-aliases'], COMMANDS.add)
+    expect(p.flags.cid).toEqual(['c_1', 'c_2'])
+    expect(p.flags['holdout-text']).toEqual(['甲', '乙'])
+    expect(p.flags['match-aliases']).toBe(true)
+    expect(COMMANDS.iterate.opts.cid.multiple).toBe(true)
+    expect(COMMANDS.check).toBeDefined()
+    expect(COMMANDS.ban.args).toBe('<head...>')
+    expect(COMMANDS.allow.args).toBe('<head...>')
+  })
+
+  it('surf 不再接受旧焦点、分页、拒绝与封禁参数', () => {
+    for (const args of [
+      ['--focus', 'c_1'], ['--more'], ['--reject', 'c_1'], ['--ban'], ['--allow', '启动'],
+    ]) {
+      expect(() => parse(args, COMMANDS.surf)).toThrow(UsageError)
+    }
+  })
+
   it('--help 在任何命令上都合法', () => {
     expect(parse(['--help'], COMMANDS.show).flags.help).toBe(true)
     expect(parse([], COMMANDS.surf).flags.help).toBeUndefined()
@@ -69,7 +88,7 @@ describe('entry 三通道', () => {
 
   it('无 entry → UsageError（归纳由操作员亲写；cid/text 只做证据关联不触发归纳）', async () => {
     await expect(COMMANDS.add.run({ _: [], flags: {} }, rt)).rejects.toBeInstanceOf(UsageError)
-    await expect(COMMANDS.add.run({ _: [], flags: { cid: 'c_0001' } }, rt)).rejects.toBeInstanceOf(UsageError)
+    await expect(COMMANDS.add.run({ _: [], flags: { cid: ['c_0001'] } }, rt)).rejects.toBeInstanceOf(UsageError)
   })
 })
 
@@ -163,7 +182,7 @@ describe('write path 命令', () => {
     const file = join(dir, 'entry.json')
     writeFileSync(file, JSON.stringify(entry()), 'utf8')
     try {
-      const out = await COMMANDS.add.run({ _: [], flags: { cid, 'entry-file': file } }, rt)
+      const out = await COMMANDS.add.run({ _: [], flags: { cid: [cid], 'entry-file': file, 'holdout-text': '青铜巨像独立留出例' } }, rt)
       expect(out.payload.id).toMatch(/^m_/)
       expect(out.payload.matcher).toBe('compiled')
       expect(out.payload.backtest).not.toBeNull()
@@ -191,14 +210,14 @@ describe('write path 命令', () => {
 
   it('add 重名 → MEME_DUPLICATE 引导 iterate', async () => {
     const cid = seedCandidateWithEvidence(rt.db)
-    await COMMANDS.add.run({ _: [], flags: { cid, 'entry-json': JSON.stringify(entry()) } }, rt)
+    await COMMANDS.add.run({ _: [], flags: { cid: [cid], 'entry-json': JSON.stringify(entry()), 'holdout-text': '青铜巨像独立留出例' } }, rt)
     await expect(COMMANDS.add.run({ _: [], flags: { 'entry-json': JSON.stringify(entry()) } }, rt))
       .rejects.toMatchObject({ code: 'MEME_DUPLICATE' })
   })
 
   it('iterate entry 路径：id/state 保持，释义更新', async () => {
     const cid = seedCandidateWithEvidence(rt.db)
-    const added = await COMMANDS.add.run({ _: [], flags: { cid, 'entry-json': JSON.stringify(entry()) } }, rt)
+    const added = await COMMANDS.add.run({ _: [], flags: { cid: [cid], 'entry-json': JSON.stringify(entry()), 'holdout-text': '青铜巨像独立留出例' } }, rt)
     const id = added.payload.id as string
     const revised = { ...entry(), card: { ...entry().card, gist: '修订后的释义' } }
     const out = await COMMANDS.iterate.run({ _: [id], flags: { 'entry-json': JSON.stringify(revised) } }, rt)
@@ -390,6 +409,11 @@ describe('shim（prompt-only 插件）', () => {
     expect(skills[0].content).toContain('$DSH_MEME_BIN')
     expect(skills[0].content).toContain('entry JSON schema')
     expect(skills[0].content).toContain('"forbid_inner": true')
+    expect(skills[0].content).toContain('meme check')
+    expect(skills[0].content).toContain('meme ban')
+    expect(skills[0].content).toContain('--match-aliases')
+    expect(skills[0].content).toContain('benchmarks/')
+    expect(skills[0].content).toContain('--no-fetch')
     expect(captured).not.toBeNull()
     expect(captured!.name).toBe('dsh-meme')
     expect(Object.keys(captured!.variables)).toEqual(['DSH_MEME_NODE', 'DSH_MEME_BIN'])

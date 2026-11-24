@@ -4,8 +4,9 @@
  */
 import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
+import { tx } from '../db.ts'
 import * as audit from '../audit.ts'
-import { byHead, get as getCand } from '../candidates.ts'
+import { allActive, get as getCand, save as saveCand } from '../candidates.ts'
 import type { ResolvedConfig } from '../config.ts'
 import { candidateNotFound, MemeError } from '../errors.ts'
 import { allMemes, get as getMeme, save as saveMeme } from '../entries.ts'
@@ -13,12 +14,14 @@ import type { VectorAnchor } from '../entries.ts'
 import { nextId } from '../ids.ts'
 import { makeRng } from '../lake.ts'
 import { CompiledMatcher, matchCompiled } from '../match/pipeline.ts'
+import { matchTokensTerms } from '../match/skeleton.ts'
 import { getEmbedder, vecToBlob } from '../match/vector.ts'
+import { normalizeHead } from '../detect/evidence.ts'
 import {
   type Candidate, type InductionOutput, InductionOutputSchema, type MatcherSpec,
   type Meme, nowIso, type UsageSample,
 } from '../models.ts'
-import { backtestToDict, runBacktest, type BacktestResult } from './backtest.ts'
+import { backtestToDict, runBacktest, splitDialogue, type BacktestResult } from './backtest.ts'
 import { validateAndCompile } from './compileMatcher.ts'
 
 export interface AddResult {
@@ -40,39 +43,145 @@ export function addResultToDict(res: AddResult): Record<string, unknown> {
   }
 }
 
-/** 新词条与库内词条同名/同别名 → 应走 iterate 而非重复入库。 */
-export function findDuplicate(db: DatabaseSync, out: InductionOutput): Meme | null {
+export interface EvidenceOpts {
+  cids?: string[]
+  text?: string
+  force?: boolean
+  match_aliases?: boolean
+  holdout_texts?: string[] | null
+}
+
+/** 新词条与库内其他词条同名/同别名 → 应走 iterate 而非重复入库。 */
+export function findDuplicate(db: DatabaseSync, out: InductionOutput, excludeId?: string): Meme | null {
   for (const m of allMemes(db)) {
-    if (m.state === 'tombstone') continue
+    if (m.id === excludeId || m.state === 'tombstone') continue
     const terms = new Set([m.name, ...m.aliases])
     if (terms.has(out.name) || out.aliases.some((a) => terms.has(a))) return m
   }
   return null
 }
 
-/** 留出集构建（去污染）：按比例切出 holdout 文本与其会话上下文。 */
-function buildHoldout(db: DatabaseSync, cand: Candidate, holdoutRatio: number): {
-  texts: string[]
-  ctxs: Array<string[] | null>
-} {
-  const q = db.prepare('SELECT message FROM lake_comments WHERE rpid=?')
-  const all = cand.evidence_usages.filter((u) => u.text.trim())
-  const rnd = makeRng(42) // 确定性洗牌：与 backtest 同一种子约定
-  const texts = all.map((u) => u.text)
-  for (let i = texts.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1))
-    ;[texts[i], texts[j]] = [texts[j], texts[i]]
+/** 先精确、再仅在前缀/包含匹配唯一时解析；所有显式 cid 在任何写库前预检。 */
+function resolveEvidenceCandidates(db: DatabaseSync, opts: EvidenceOpts): Candidate[] {
+  const ids = [...new Set(opts.cids ?? [])]
+  const resolved = new Map<string, Candidate>()
+  for (const id of ids) {
+    const cand = getCand(db, id)
+    if (!cand) throw candidateNotFound(id)
+    resolved.set(cand.cid, cand)
   }
-  const holdout = texts.slice(0, Math.max(1, Math.floor(all.length * holdoutRatio)))
-  const byText = new Map<string, UsageSample>()
-  for (const u of all) if (!byText.has(u.text)) byText.set(u.text, u)
-  const ctxs: Array<string[] | null> = holdout.map((t) => {
-    const u = byText.get(t)
-    if (!u?.parent) return null
-    const row = q.get(u.parent) as Row | undefined
-    return row ? [row.message as string, t] : null
+  if (opts.text) {
+    const query = normalizeHead(opts.text)
+    const active = allActive(db)
+    const exact = active.filter((c) => normalizeHead(c.head) === query)
+    const pool = exact.length ? exact : active.filter((c) => {
+      const head = normalizeHead(c.head)
+      return head.startsWith(query) || head.includes(query) || query.includes(head)
+    })
+    if (pool.length > 1) {
+      throw new MemeError(
+        'MEME_CANDIDATE_AMBIGUOUS', `文本匹配到多个候选：${pool.map((c) => `${c.cid}(${c.head})`).join('、')}`,
+        `用 --cid 明确指定：${pool.map((c) => c.cid).join(' / ')}。`,
+      )
+    }
+    if (pool[0]) resolved.set(pool[0].cid, pool[0])
+  }
+  return [...resolved.values()]
+}
+
+/** --match-aliases 才把非槽位别名并入 lex；交互梗绝不增加可绕过上下文的词表命中。 */
+function applyAliasMatching(out: InductionOutput): InductionOutput {
+  const matched = structuredClone(out)
+  if (!matched.matcher || matched.class === 'interaction'
+    || matched.matcher.patterns.some((p) => p.kind === 'interaction')) return matched
+  const aliases = [...new Set(matched.aliases.map((a) => a.trim()).filter((a) => a && !a.includes('<')))]
+  if (!aliases.length) return matched
+  const lex = matched.matcher.patterns.filter((p) => p.kind === 'lex')
+  if (!lex.length) matched.matcher.patterns.push({ kind: 'lex', terms: [...aliases], tokens: [], trigger_terms: [], trigger_tokens: [], response_terms: [], response_tokens: [] })
+  else for (const p of lex) p.terms = [...new Set([...p.terms, ...aliases])]
+  return matched
+}
+
+/** 候选用例是否命中 canonical 正例口径：词条名、实际 lex terms、skeleton 槽位形状或交互回应。
+ * aliases 只有开启 --match-aliases 后才会进入 lex terms；默认元数据别名不作为回测正例口径。 */
+function matchesCanonicalEvidence(out: InductionOutput, text: string): boolean {
+  const normalized = normalizeHead(text)
+  if (!out.name.includes('<') && normalized.includes(normalizeHead(out.name))) return true
+  return (out.matcher?.patterns ?? []).some((p) => {
+    if (p.kind === 'lex') return p.terms.some((term) => normalized.includes(normalizeHead(term)))
+    if (p.kind === 'skeleton') return Boolean(matchTokensTerms(text, p.tokens, []))
+    return Boolean(matchTokensTerms(text, p.response_tokens, p.response_terms))
   })
-  return { texts: holdout, ctxs }
+}
+
+interface HoldoutSample extends UsageSample { source?: 'wild' | 'candidate' | 'example' }
+
+function isInteraction(out: InductionOutput): boolean {
+  return out.class === 'interaction' || (out.matcher?.patterns ?? []).some((p) => p.kind === 'interaction')
+}
+
+function hasValidHoldoutPair(out: InductionOutput, texts: string[], ctxs: Array<string[] | null>): boolean {
+  const [current, contexts] = splitDialogue(texts, ctxs)
+  return current.some((_text, i) => {
+    const ctx = contexts[i]
+    if (!ctx || ctx.length < 2) return false
+    return (out.matcher?.patterns ?? []).some((p) => p.kind === 'interaction'
+      && matchTokensTerms(ctx[0], p.trigger_tokens, p.trigger_terms))
+  })
+}
+
+function validInteractionPair(db: DatabaseSync, sample: HoldoutSample, out: InductionOutput): boolean {
+  if (!sample.parent) return false
+  const row = db.prepare('SELECT message FROM lake_comments WHERE rpid=?').get(sample.parent) as Row | undefined
+  if (!row) return false
+  const parent = row.message as string
+  return (out.matcher?.patterns ?? []).some((p) => p.kind === 'interaction'
+    && matchTokensTerms(parent, p.trigger_tokens, p.trigger_terms)
+    && matchTokensTerms(sample.text, p.response_tokens, p.response_terms))
+}
+
+/** 留出集构建：候选用例按 canonical keys 去污染，直接洗牌样本以保留 pair/parent。 */
+/** 独立证据先过 canonical 正例口径；交互证据还必须有有效触发对。 */
+function eligibleHoldoutSamples(
+  db: DatabaseSync, samples: HoldoutSample[], out: InductionOutput,
+): HoldoutSample[] {
+  let eligible = samples.filter((u) => u.text && u.text.trim()).filter((u) => {
+    if (u.source !== 'candidate') return true
+    return matchesCanonicalEvidence(out, u.text)
+  })
+  if (isInteraction(out)) eligible = eligible.filter((u) => validInteractionPair(db, u, out))
+  return eligible
+}
+
+function buildHoldout(
+  db: DatabaseSync, samples: HoldoutSample[], out: InductionOutput, holdoutRatio: number,
+): { texts: string[]; ctxs: Array<string[] | null> } {
+  const eligible = eligibleHoldoutSamples(db, samples, out)
+  if (isInteraction(out) && !eligible.length) {
+    throw new MemeError(
+      'MEME_INTERACTION_EVIDENCE_REQUIRED', '没有可用的交互触发对作为留出集',
+      '提供至少一条“上句：X 本句：Y”的 --holdout-text，或补充带父评的候选证据。',
+    )
+  }
+  if (!eligible.length) {
+    throw new MemeError(
+      'MEME_HOLDOUT_REQUIRED', '候选用例都没有命中 canonical evidence keys，无法构建独立留出集',
+      '用可重复的 --holdout-text 提供未参与归纳的例句；不要回退到污染全集。',
+    )
+  }
+  const shuffled = [...eligible]
+  const rnd = makeRng(42)
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  const holdout = shuffled.slice(0, Math.max(1, Math.floor(shuffled.length * holdoutRatio)))
+  const ctxs = holdout.map((u) => {
+    if (!u.parent) return null
+    const row = db.prepare('SELECT message FROM lake_comments WHERE rpid=?').get(u.parent) as Row | undefined
+    return row ? [row.message as string, u.text] : null
+  })
+  return { texts: holdout.map((u) => u.text), ctxs }
 }
 
 async function embedExamples(meme: Meme, cfg: ResolvedConfig): Promise<VectorAnchor[]> {
@@ -203,20 +312,13 @@ function parseEntry(entryData: unknown): InductionOutput {
   return parsed.data
 }
 
-/** add：操作员亲写词条入库。--cid/--text 只用于关联候选证据与收口，本地闸门全数保留。 */
+/** add：操作员亲写词条入库。cid/text 只用于关联证据与收口，本地闸门全数保留。 */
 export async function runAddEntry(
-  db: DatabaseSync, cfg: ResolvedConfig, entryData: unknown,
-  opts: { cid?: string; text?: string; force?: boolean } = {},
+  db: DatabaseSync, cfg: ResolvedConfig, entryData: unknown, opts: EvidenceOpts = {},
 ): Promise<AddResult> {
-  const out = parseEntry(entryData)
-
-  let cand: Candidate | null = null
-  if (opts.cid) {
-    cand = getCand(db, opts.cid)
-    if (!cand) throw candidateNotFound(opts.cid)
-  } else if (opts.text) {
-    cand = byHead(db, opts.text.trim().slice(0, 12))
-  }
+  const parsed = parseEntry(entryData)
+  const out = opts.match_aliases ? applyAliasMatching(parsed) : parsed
+  const cands = resolveEvidenceCandidates(db, opts)
 
   const dup = findDuplicate(db, out)
   if (dup) {
@@ -227,51 +329,107 @@ export async function runAddEntry(
     )
   }
 
-  const positives = [...out.examples, ...(cand ? cand.evidence_usages.filter((u) => u.text.trim()).map((u) => u.text) : [])]
-  let holdoutTexts: string[] | null = null
+  const explicit = opts.holdout_texts?.filter((t) => t && t.trim()) ?? []
+  const samples = cands.flatMap((c) => c.evidence_usages.map((u) => ({ ...u, source: 'candidate' as const })))
+  const eligible = out.matcher ? eligibleHoldoutSamples(db, samples, out) : []
+  const positives = [...new Set([...out.examples, ...eligible.map((u) => u.text)])]
+  let holdoutTexts: string[] | null = explicit.length ? explicit : null
   let holdoutCtx: Array<string[] | null> | null = null
-  if (cand && cand.evidence_usages.length >= 5) {
-    const h = buildHoldout(db, cand, cfg.backtest.holdout)
+  if ((!holdoutTexts || !holdoutTexts.length) && cands.length && out.matcher !== null) {
+    const h = buildHoldout(db, samples, out, cfg.backtest.holdout)
     holdoutTexts = h.texts
     holdoutCtx = h.ctxs
   }
+  if (isInteraction(out) && !hasValidHoldoutPair(out, holdoutTexts ?? [], holdoutCtx ?? [])
+    && !eligible.some((u) => validInteractionPair(db, u, out))) {
+    throw new MemeError(
+      'MEME_INTERACTION_EVIDENCE_REQUIRED', '交互梗至少需要一个有效触发对',
+      '提供至少一条“上句：X 本句：Y”的 --holdout-text，或补充带父评的候选证据。',
+    )
+  }
   const [meme, bt, warnings, degraded] = await gateAndBuild(db, cfg, out, {
     positives, holdout_texts: holdoutTexts, holdout_ctx: holdoutCtx,
-    platform: opts.cid ? ['bilibili'] : [],
+    platform: cands.length ? ['bilibili'] : [],
     strict: true, force: opts.force ?? false,
   })
 
   const vectors = await embedExamples(meme, cfg)
   saveMeme(db, meme, vectors)
-  settleCandidate(db, cand)
+  const closed = settleCandidates(db, meme, cands)
   audit.record(db, meme.id, 'induct', 'add', {
-    evidence_head: cand ? cand.head : (opts.text ?? '').slice(0, 20),
+    evidence_heads: cands.map((c) => c.head),
+    evidence_head: cands[0]?.head ?? (opts.text ?? '').slice(0, 20),
     entry_notes: out.notes,
     backtest: bt ? backtestToDict(bt) : null,
-    forced_vector_only: Boolean(opts.force && out.matcher !== null),
+    forced_vector_only: degraded,
+    force_used: Boolean(opts.force),
+    closed_cids: closed.cids,
+    closed_heads: closed.heads,
   })
   return { meme, backtest: bt, matcher_degraded: degraded, warnings }
 }
 
-/** iterate：操作员带新证据亲写修订版（原位更新，保留 id/state/stats）。首轮归纳常错，修订必须常做。 */
+/** iterate：带证据亲写修订版，原位更新并保留 id/state/stats。 */
 export async function runIterate(
   db: DatabaseSync, cfg: ResolvedConfig, mid: string,
-  opts: { entry: unknown; force?: boolean },
+  opts: EvidenceOpts & { entry: unknown },
 ): Promise<AddResult> {
   const meme = getMeme(db, mid)
   if (!meme) {
     throw new MemeError('MEME_NOT_FOUND', `未找到词条：${mid}`, '用 meme search 找到目标词条 id 后重试。')
   }
-  const out = parseEntry(opts.entry)
-  const ev = collectIterateEvidence(db, meme)
+  const parsed = parseEntry(opts.entry)
+  const out = opts.match_aliases ? applyAliasMatching(parsed) : parsed
+  const cands = resolveEvidenceCandidates(db, opts)
+  const dup = findDuplicate(db, out, meme.id)
+  if (dup) {
+    throw new MemeError(
+      'MEME_DUPLICATE', `词条名/别名与已有词条 ${dup.id}（${dup.name}）冲突`,
+      `确属不同梗请改用不冲突的名字；修订 ${meme.id} 时可保留原词条名。`,
+    )
+  }
+  const ev = collectIterateEvidence(db, meme, cands)
+  const independentSamples = ev.usages.map(recordToSample)
+  const eligibleIndependent = out.matcher
+    ? eligibleHoldoutSamples(db, independentSamples, out).filter((u) => u.source !== 'example')
+    : []
+  const restoringMatcher = meme.matcher === null && out.matcher !== null
+  const explicitHoldout = opts.holdout_texts?.filter((t) => t && t.trim()) ?? []
+  const matcherEvidenceForced = restoringMatcher && eligibleIndependent.length === 0 && !explicitHoldout.length && Boolean(opts.force)
+  if (restoringMatcher && eligibleIndependent.length === 0 && !explicitHoldout.length && !opts.force) {
+    throw new MemeError(
+      'MEME_MATCHER_EVIDENCE_REQUIRED', '从纯向量词条恢复 compiled matcher 需要独立野外或候选证据',
+      '补充 --cid 关联候选，或用 --holdout-text 提供独立留出例句；确需绕过可再次加 --force。',
+    )
+  }
 
-  const positives = [...ev.usages.map((u) => u.text as string).filter(Boolean), ...out.examples]
+  const positives = [...new Set([...out.examples, ...eligibleIndependent.map((u) => u.text)])]
+  let holdoutTexts: string[] | null = explicitHoldout.length ? explicitHoldout : null
+  let holdoutCtx: Array<string[] | null> | null = null
+  if ((!holdoutTexts || !holdoutTexts.length) && out.matcher !== null && eligibleIndependent.length > 0) {
+    const h = buildHoldout(db, eligibleIndependent, out, cfg.backtest.holdout)
+    holdoutTexts = h.texts
+    holdoutCtx = h.ctxs
+  }
+  if (isInteraction(out) && !hasValidHoldoutPair(out, holdoutTexts ?? [], holdoutCtx ?? [])
+    && !eligibleIndependent.some((u) => validInteractionPair(db, u, out))) {
+    throw new MemeError(
+      'MEME_INTERACTION_EVIDENCE_REQUIRED', '交互梗至少需要一个有效触发对',
+      '提供至少一条“上句：X 本句：Y”的 --holdout-text，或补充带父评的独立证据。',
+    )
+  }
   const oldTerms = new Set([meme.name, ...meme.aliases])
-  const [meme2, bt, warnings, degraded] = await gateAndBuild(db, cfg, out, {
-    base: meme, positives, strict: true, force: opts.force ?? false,
+  const [meme2, bt, warnings, gateDegraded] = await gateAndBuild(db, cfg, out, {
+    base: meme, positives, holdout_texts: holdoutTexts, holdout_ctx: holdoutCtx,
+    strict: true, force: opts.force ?? false,
   })
+  let degraded = gateDegraded
+  if (matcherEvidenceForced && meme2.matcher !== null) {
+    meme2.matcher = null
+    degraded = true
+    warnings.push('缺少独立证据，显式 --force 仍降级为纯向量词条（未用自写 examples 恢复 matcher）')
+  }
 
-  // 语义漂移留痕：释义实质性变化 → drift 自动记一笔（人写分期仍走 edit --drift）
   if (meme.card.gist !== meme2.card.gist) {
     meme2.drift = [...meme2.drift, {
       period: meme2.updated_at.slice(0, 10),
@@ -281,63 +439,85 @@ export async function runIterate(
   }
   const vectors = await embedExamples(meme2, cfg)
   saveMeme(db, meme2, vectors)
-
-  // 新收编的别名若有对应候选 → 收口
-  for (const t of [meme2.name, ...meme2.aliases]) {
-    if (oldTerms.has(t)) continue
-    const c = byHead(db, t)
-    if (c && c.state !== 'inducted') settleCandidate(db, c)
-  }
+  const closed = settleCandidates(db, meme2, cands)
 
   audit.record(db, meme2.id, 'iterate', 'edit', {
     evidence_usages: ev.usages.length,
+    independent_evidence_usages: ev.independent_usages,
     backtest: bt ? backtestToDict(bt) : null,
     old_gist: meme.card.gist,
     new_terms: [meme2.name, ...meme2.aliases].filter((t) => !oldTerms.has(t)).sort(),
     warnings,
+    forced_vector_only: degraded,
+    force_used: Boolean(opts.force),
+    matcher_evidence_forced: matcherEvidenceForced,
+    closed_cids: closed.cids,
+    closed_heads: closed.heads,
   })
   return { meme: meme2, backtest: bt, matcher_degraded: degraded, warnings }
 }
 
-/** iterate 证据包：词条当前 matcher 在原始湖的野外命中 + 同头候选证据（backtest 正例来源）。 */
-export function collectIterateEvidence(db: DatabaseSync, meme: Meme): EvidencePack {
+function recordToSample(u: Record<string, unknown>): HoldoutSample {
+  return {
+    text: String(u.text ?? ''), aid: Number(u.aid ?? 0), rpid: Number(u.rpid ?? 0),
+    root: Number(u.root ?? 0), parent: Number(u.parent ?? 0), mid: Number(u.mid ?? 0),
+    ctime: Number(u.ctime ?? 0), chain: Boolean(u.chain),
+    source: u.source === 'wild' || u.source === 'candidate' ? u.source : 'example',
+  }
+}
+
+/** iterate 证据包：保留完整 UsageSample 与 pair/parent；候选证据跨通道按 canonical terms 精确收集。 */
+export function collectIterateEvidence(db: DatabaseSync, meme: Meme, extraCandidates: Candidate[] = []): EvidencePack {
   const usages: Array<Record<string, unknown>> = []
+  const seen = new Set<string>()
+  const push = (sample: UsageSample, source: 'wild' | 'candidate'): void => {
+    const key = `${source}\x00${sample.rpid}\x00${sample.text}`
+    if (seen.has(key)) return
+    seen.add(key)
+    let pair: string[] | null = null
+    if (sample.parent) {
+      const row = db.prepare('SELECT message FROM lake_comments WHERE rpid=?').get(sample.parent) as Row | undefined
+      if (row) pair = [row.message as string, sample.text]
+    }
+    usages.push({ ...sample, source, ...(pair ? { pair } : {}) })
+  }
   if (meme.matcher) {
     const cm = new CompiledMatcher(meme)
     const rows = db.prepare(
-      'SELECT rpid, oid, message, parent FROM lake_comments ORDER BY rpid DESC LIMIT 4000',
+      'SELECT rpid, oid, root, parent, mid, message, ctime FROM lake_comments ORDER BY rpid DESC LIMIT 4000',
     ).all() as Row[]
-    const msgByRpid = new Map(rows.map((r) => [r.rpid as number, r.message as string]))
-    const seen = new Set<number>()
     for (const r of rows) {
-      if (usages.length >= 24) break
+      if (usages.filter((u) => u.source === 'wild').length >= 24) break
+      const sample: UsageSample = {
+        text: r.message as string, aid: r.oid as number, rpid: r.rpid as number,
+        root: r.root as number, parent: r.parent as number, mid: r.mid as number,
+        ctime: r.ctime as number, chain: false,
+      }
       let ctx: string[] | null = null
-      if (r.parent) {
-        const p = msgByRpid.get(r.parent as number)
-        if (p) ctx = [p, r.message as string]
+      if (sample.parent) {
+        const parent = db.prepare('SELECT message FROM lake_comments WHERE rpid=?').get(sample.parent) as Row | undefined
+        if (parent) ctx = [parent.message as string, sample.text]
       }
-      const hit = matchCompiled(cm, r.message as string, ctx)
-      if (hit && !seen.has(r.rpid as number)) {
-        seen.add(r.rpid as number)
-        usages.push(ctx ? { text: r.message, pair: ctx } : { text: r.message })
-      }
+      if (matchCompiled(cm, sample.text, ctx)) push(sample, 'wild')
     }
   }
-  const candUsages: string[] = []
-  for (const term of [meme.name, ...meme.aliases]) {
-    const c = byHead(db, term)
-    if (c) candUsages.push(...c.evidence_usages.map((u) => u.text))
+  const terms = new Set([meme.name, ...meme.aliases].map(normalizeHead))
+  const cands = [...extraCandidates, ...allActive(db).filter((c) => terms.has(normalizeHead(c.head)))]
+  const seenCids = new Set<string>()
+  for (const c of cands) {
+    if (seenCids.has(c.cid)) continue
+    seenCids.add(c.cid)
+    for (const u of c.evidence_usages) push(u, 'candidate')
   }
-  for (const t of candUsages.slice(0, 8)) {
-    if (!usages.some((u) => u.text === t)) usages.push({ text: t })
-  }
+  const independent = usages.filter((u) => u.source === 'wild' || u.source === 'candidate').length
   return {
     head: meme.name,
     kind: meme.class,
     channel: 'iterate',
     spread: { videos: 0, ups: 0, first: null, last: null },
     z: null,
-    usages: usages.length ? usages : meme.examples.slice(0, 3).map((m) => ({ text: m })),
+    independent_usages: independent,
+    usages: usages.length ? usages.slice(0, 48) : meme.examples.slice(0, 3).map((text) => ({ text, source: 'example' })),
   }
 }
 
@@ -347,10 +527,33 @@ export interface EvidencePack {
   channel: string
   spread: { videos: number; ups: number; first: string | null; last: string | null }
   z: number | null
+  independent_usages: number
   usages: Array<Record<string, unknown>>
 }
 
-function settleCandidate(db: DatabaseSync, cand: Candidate | null): void {
-  if (!cand || cand.state === 'inducted') return
-  db.prepare("UPDATE candidates SET state='inducted' WHERE cid=?").run(cand.cid)
+/** 成功后收口显式 cids + 所有 head 精确等于 canonical name/aliases 的 active 候选。 */
+function settleCandidates(
+  db: DatabaseSync, meme: Meme, explicit: Candidate[],
+): { cids: string[]; heads: string[] } {
+  const terms = new Set([meme.name, ...meme.aliases].map(normalizeHead))
+  const pool = new Map<string, Candidate>()
+  for (const c of [...explicit, ...allActive(db).filter((c) => terms.has(normalizeHead(c.head)))]) pool.set(c.cid, c)
+  const cids: string[] = []
+  const heads: string[] = []
+  tx(db, () => {
+    for (const c of pool.values()) {
+      const current = getCand(db, c.cid)
+      if (!current || (current.state !== 'pending' && current.state !== 'triggered')) continue
+      current.state = 'inducted'
+      current.updated_at = nowIso()
+      if (!current.related.some((r) => r.id === meme.id && r.type === 'same_form')) {
+        current.related = [...current.related, { id: meme.id, type: 'same_form' as const, score: 0.95 }].slice(0, 5)
+      }
+      saveCand(db, current)
+      db.prepare("UPDATE candidates SET reject_reason='inducted' WHERE cid=?").run(current.cid)
+      cids.push(current.cid)
+      heads.push(current.head)
+    }
+  })
+  return { cids, heads }
 }

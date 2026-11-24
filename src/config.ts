@@ -56,18 +56,42 @@ export interface RetrievalConfig {
 }
 
 export interface LifecycleConfig {
+  /** 触发所需的最少存活轮数（跨轮证据下限）。 */
   trigger_rounds: number
+  /** 词类（phrase）触发的终身绝对出现次数，不限轮数。 */
   trigger_videos: number
-  trigger_z: number
+  /** 结构通道（copy/skeleton）触发的终身绝对出现次数；image 改用跨视频数。 */
   trigger_videos_alt: number
-  trigger_fresh_videos: number
+  /** 图梗（image）触发的跨视频数；pHash 簇重复即信号，独立于文本体量线。 */
+  trigger_images: number
+  /** 触发特征分门（memeScore：复读/坍缩/独立成评的纯统计分）。 */
   trigger_meme_score: number
+  /** 候选存活窗口（轮）：末次证据超过该轮数则休眠（不评估、不呈现，新证据唤醒）；
+   * 休眠且从未达体量线的候选直接删除（低价值早清）。 */
+  surf_survive_rounds: number
+  /** 候选死亡（天）：末次证据超过该天数删除——pending/triggered 一视同仁，inducted 豁免。 */
+  candidate_death_days: number
+  /** 原始湖轮次留存（轮）：0 = 不清理（开发期默认，保护可重审历史）；部署期设 7，
+   * 每轮删除该轮数之前的评论/视频/评论图片。代价：更早历史不可重审。 */
+  surf_retention_rounds: number
   promote_rounds: number
   fade_window_days: number
   fade_drop: number
   tombstone_ratio: number
-  candidate_expire_rounds: number
   backlog_alert: number
+}
+
+/**
+ * QQ 群聊 bot（内置桥接）配置。qq 段存在且 app_id/app_secret 齐备才启动 bot；
+ * 不配 = 纯 B站用户，行为与过去完全一致。凭据从 QQ 开放平台控制台（q.qq.com）取。
+ */
+export interface QQConfig {
+  app_id: string
+  app_secret: string
+  /** 群聊是否需要 @bot 才进 agent 会话。采集不受影响：所有群消息（含非 @）都进梗池。 */
+  require_mention: boolean
+  /** 允许的群 OpenID 白名单；空 = 全部接收。 */
+  group_allow: string[]
 }
 
 /** config.json 的原始形状（全部可选）。 */
@@ -79,6 +103,7 @@ export interface Config {
   retrieval?: Partial<RetrievalConfig>
   lifecycle?: Partial<LifecycleConfig>
   detect?: { generic_extra?: string[] }
+  qq?: Partial<QQConfig>
 }
 
 const DEFAULT_FETCH: FetchConfig = {
@@ -95,7 +120,8 @@ const DEFAULT_FETCH: FetchConfig = {
   videos_per_round: 30,
   comments_per_video: 300,
   reply_pages_per_video: 3,
-  latest_pages_per_video: 0,
+  // 新视频补抓最新页：热度页沉淀的多是旧评论，进行中的梗浪在最新页
+  latest_pages_per_video: 1,
   max_per_source: 0,
   subreply_pages_per_root: 1,
   max_comment_age_days: 30,
@@ -126,17 +152,30 @@ const DEFAULT_RETRIEVAL: RetrievalConfig = {
 
 const DEFAULT_LIFECYCLE: LifecycleConfig = {
   trigger_rounds: 2,
-  trigger_videos: 4,
-  trigger_z: 4,
-  trigger_videos_alt: 8,
-  trigger_fresh_videos: 5,
-  trigger_meme_score: 0.45,
+  // 次数线校准（2026-11-22 真实湖敏感度实测，操作员确认 5 偏低）：10/15 下
+  // 队列 ~95 条可逐条裁决；已确认真梗全部次数 ≥7 且当时已 triggered，零损失。
+  // 纯次数分不开单容器话术热点（做出来 50 次/dv2 类）——热点治理走 --ban 沉淀。
+  trigger_videos: 10,
+  trigger_videos_alt: 15,
+  trigger_images: 8,
+  // 独立成评口径修正后，其单独贡献上限为 0.5；门槛提高到 0.7，要求重复/坍缩等第二类证据。
+  // 真实池敏感性：0.45 会放行约 2175 条体量达标候选，0.7 约 169 条（2026-11-25）。
+  trigger_meme_score: 0.7,
+  surf_survive_rounds: 7,
+  candidate_death_days: 28,
+  surf_retention_rounds: 0,
   promote_rounds: 2,
   fade_window_days: 90,
   fade_drop: 0.5,
   tombstone_ratio: 0.1,
-  candidate_expire_rounds: 6,
   backlog_alert: 10,
+}
+
+const DEFAULT_QQ: QQConfig = {
+  app_id: '',
+  app_secret: '',
+  require_mention: true,
+  group_allow: [],
 }
 
 /** 展平后的运行时配置（全部字段就位）。 */
@@ -148,6 +187,7 @@ export interface ResolvedConfig {
   retrieval: RetrievalConfig
   lifecycle: LifecycleConfig
   genericExtra: string[]
+  qq: QQConfig
 }
 
 export function defaultDbPath(): string {
@@ -164,6 +204,7 @@ export function resolveConfig(raw: Config = {}): ResolvedConfig {
     retrieval: { ...DEFAULT_RETRIEVAL, ...raw.retrieval },
     lifecycle: { ...DEFAULT_LIFECYCLE, ...raw.lifecycle },
     genericExtra: raw.detect?.generic_extra ?? [],
+    qq: { ...DEFAULT_QQ, ...raw.qq },
   }
 }
 
@@ -201,6 +242,7 @@ export function configTemplate(): string {
     retrieval: { ...DEFAULT_RETRIEVAL },
     lifecycle: { ...DEFAULT_LIFECYCLE },
     detect: { generic_extra: [] },
+    qq: { ...DEFAULT_QQ },
   }, null, 2) + '\n'
 }
 

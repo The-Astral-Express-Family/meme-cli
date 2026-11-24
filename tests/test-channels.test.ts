@@ -10,7 +10,7 @@ import { makeCfg, openDb, seedComments } from './helpers.ts'
 
 let env: { db: ReturnType<typeof openDb>; cfg: ReturnType<typeof makeCfg>['cfg'] }
 beforeEach(() => {
-  const m = makeCfg()
+  const m = makeCfg({ lifecycle: { trigger_videos: 5, trigger_videos_alt: 8 } })
   env = { db: openDb(m.cfg), cfg: m.cfg }
 })
 
@@ -146,7 +146,7 @@ describe('后缀公式族', () => {
 })
 
 describe('跨轮累积与触发', () => {
-  it('低频真梗跨轮累积后触发', async () => {
+  it('词类累计跨 ≥5 视频即触发（慢积累不限轮数）', async () => {
     const rounds: Array<[string[], number[]]> = [
       [['难绷', '又是这活，难绷'], [705, 706]],
       [['真难绷', '难绷时刻'], [707, 708]],
@@ -158,25 +158,97 @@ describe('跨轮累积与触发', () => {
       const filler = Array.from({ length: 4 }, (_, i) => `普通评论${rid}${i}条`)
       seedComments(env.db, [...texts, ...filler], [...aids, ...[713, 714, 715, 716]], rid, 0, 50000 + rid * 100)
       await updateSignals(env.db, env.cfg, rid)
-      transitionCandidates(env.db, env.cfg.lifecycle, rid)
     }
+    await transitionCandidates(env.db, env.cfg, 4)
     const cand = candidates.byHead(env.db, '难绷')
     expect(cand, '低频真梗跨轮未入榜').not.toBeNull()
     expect(cand!.distinct_videos).toBeGreaterThanOrEqual(5)
     expect(cand!.surfs_seen).toBeGreaterThanOrEqual(3)
-    expect(cand!.state, '跨轮累积后应触发').toBe('triggered')
+    expect(cand!.state, '慢积累真梗达体量线应触发').toBe('triggered')
   })
 
-  it('泛用词 dv 高但句句不同 → 永不触发', async () => {
+  it('泛用词体量达线但句句不同 → 特征分挡住，不触发', async () => {
+    const variants = ['这波真舒服', '看完很舒服', '坐着舒服', '躺着舒服', '手感舒服', '音质舒服', '椅子舒服', '床很舒服']
+    for (let rid = 1; rid <= 4; rid++) {
+      seedComments(env.db, variants.map((v, i) => `${v}第${rid}轮${i}`),
+        Array.from({ length: 8 }, (_, i) => 810 + rid * 10 + i), rid, 0, 70000 + rid * 100)
+      await updateSignals(env.db, env.cfg, rid)
+    }
+    await transitionCandidates(env.db, env.cfg, 4)
+    const cand = candidates.byHead(env.db, '舒服')
+    if (cand) expect(cand.state, '泛用词被误触发').not.toBe('triggered')
+  })
+
+  it('词类跨 ≥5 视频即触发（新物快传与累计体量同一条线）', async () => {
+    for (let rid = 1; rid <= 2; rid++) {
+      const filler = Array.from({ length: 8 }, (_, i) => `这期视频质量不错画面也很用心值得反复观看第${rid}组第${i}条`)
+      seedComments(env.db, ['鲸鲸', '哦鲸鲸', '鲸鲸好可爱', '给鲸鲸完整的一生', '鲸鲸', ...filler].map((t) => t + rid),
+        [901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913], rid, 0, 80000 + rid * 100)
+      await updateSignals(env.db, env.cfg, rid)
+    }
+    await transitionCandidates(env.db, env.cfg, 2)
+    const cand = candidates.byHead(env.db, '鲸鲸')
+    expect(cand, '快传新物未入榜').not.toBeNull()
+    expect(cand!.state, '跨 5 视频应触发').toBe('triggered')
+  })
+
+  it('存活窗口：休眠不出队，新证据唤醒后按体量线触发', async () => {
+    for (let rid = 1; rid <= 2; rid++) {
+      const filler = Array.from({ length: 8 }, (_, i) => `这期视频质量不错画面也很用心值得反复观看第${rid}组第${i}条`)
+      seedComments(env.db, ['鲸鲸', '哦鲸鲸', '鲸鲸好可爱', '给鲸鲸完整的一生', '鲸鲸', ...filler].map((t) => t + rid),
+        [901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913], rid, 0, 80000 + rid * 100)
+      await updateSignals(env.db, env.cfg, rid)
+    }
+    const cand = candidates.byHead(env.db, '鲸鲸')
+    expect(cand).not.toBeNull()
+    // 评估时点已超出存活窗口（末次证据 2 → 窗口 10 轮）：休眠跳过，不触发也不出队
+    const gap = env.cfg.lifecycle.surf_survive_rounds
+    const asleep = await transitionCandidates(env.db, env.cfg, 2 + gap)
+    expect(asleep.triggered).not.toContain(cand!.cid)
+    expect(candidates.get(env.db, cand!.cid)!.state).toBe('pending')
+    // 新证据唤醒（回到窗口内）：累计体量线达标 → 触发
+    seedComments(env.db, ['鲸鲸真的可爱', '鲸鲸'], [921, 922], 3, 0, 83000)
+    await updateSignals(env.db, env.cfg, 3)
+    const awake = await transitionCandidates(env.db, env.cfg, 3)
+    expect(awake.triggered).toContain(cand!.cid)
+  })
+
+  it('普通词有复读证据也可过统计门，但是否为梗仍须人工判定', async () => {
     const variants = ['这也不行那也不行', '进度不行啊', '手感不行', '网络不行', '状态不行',
       '天气不行', '发挥不行', '队形不行', '成绩不行', '翻译不行']
     for (const rid of [1, 2]) {
-      const texts = variants.map((v, i) => `${v}第${rid}${i}条`)
-      seedComments(env.db, texts, Array.from({ length: 10 }, (_, i) => 801 + i), rid, 0, 60000 + rid * 100)
+      const texts = ['不行', ...variants, '不行']
+      seedComments(env.db, texts.map((v, i) => `${v}第${rid}轮${i}条`),
+        Array.from({ length: texts.length }, (_, i) => 801 + i), rid, 0, 60000 + rid * 100)
       await updateSignals(env.db, env.cfg, rid)
-      transitionCandidates(env.db, env.cfg.lifecycle, rid)
+      await transitionCandidates(env.db, env.cfg, rid)
     }
     const cand = candidates.byHead(env.db, '不行')
-    if (cand) expect(cand.state, '泛用词被误触发').not.toBe('triggered')
+    expect(cand, '普通词仍应能被统计门暴露给操作员').not.toBeNull()
+    expect(cand!.state, '过统计门只表示待判断，不表示已确认是梗').toBe('triggered')
+  })
+
+  it('同视频反复复读是梗指征：3 视频 6 次出现即达体量线（跨视频线 5 会漏掉）', async () => {
+    // dv=3 过不了旧跨视频线（5），但绝对次数 6 达线——同一梗词在少量视频里
+    // 被反复刷是复读行为本身
+    const r1 = ['没绷住', '没绷住', '这里真的没绷住了', ...Array.from({ length: 8 }, (_, i) => `普通补充说明第${i}条内容各不相同`)]
+    const r2 = ['没绷住', '没绷住了属于是', '直接没绷住了', ...Array.from({ length: 6 }, (_, i) => `另一批普通评论内容${i}各不相同`)]
+    seedComments(env.db, r1, [701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 712], 1, 0, 91000)
+    seedComments(env.db, r2, [701, 702, 703, 714, 715, 716, 717, 718, 719], 2, 0, 92000)
+    await updateSignals(env.db, env.cfg, 1)
+    await updateSignals(env.db, env.cfg, 2)
+    await transitionCandidates(env.db, env.cfg, 2)
+    const cand = candidates.byHead(env.db, '没绷住')
+    expect(cand, '少视频多次复读未立户').not.toBeNull()
+    expect(cand!.distinct_videos).toBeLessThan(env.cfg.lifecycle.trigger_videos)
+    expect(cand!.state, '同视频复读达次数线应触发').toBe('triggered')
+  })
+
+  it('归账去重：候选词头不再被短语总账记第二次', async () => {
+    seedComments(env.db, ['难绷', '这波难绷', '真的难绷', '普通评论甲', '普通评论乙', '普通评论丙'],
+      [731, 732, 733, 734, 735, 736], 1)
+    await updateSignals(env.db, env.cfg, 1)
+    const row = env.db.prepare('SELECT COALESCE(SUM(cnt),0) AS s FROM phrase_daily WHERE phrase=?').get('难绷') as { s: number }
+    expect(row.s, '词头出现 3 次，账本应记 3 而非 6').toBe(3)
   })
 })

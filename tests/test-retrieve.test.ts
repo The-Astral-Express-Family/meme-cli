@@ -66,9 +66,9 @@ describe('候选呈现', () => {
       + "'2026-01-01','2026-01-01','[]','[{\"id\":\"m_0101\",\"type\":\"same_form\",\"score\":0.9}]','2026-01-01','2026-01-01')",
     ).run()
     const cand = candidates.get(env.db, 'c_0500')!
-    expect(candLine(cand, new Map([['m_0101', '典']]))).toBeTruthy()
-    expect((candDict(cand).related as Array<{ id: string }>)[0].id).toBe('m_0101')
-    expect(orderKey(cand)).toEqual(orderKey(candidates.get(env.db, 'c_0500')!)) // 确定性
+    expect(candLine(env.db, cand, new Map([['m_0101', '典']]))).toBeTruthy()
+    expect((candDict(env.db, cand).related as Array<{ id: string }>)[0].id).toBe('m_0101')
+    expect(orderKey(env.db, cand)).toEqual(orderKey(env.db, candidates.get(env.db, 'c_0500')!)) // 确定性
   })
 })
 
@@ -115,8 +115,8 @@ describe('surf 呈现', () => {
   })
 })
 
-describe('surf 轮次（存量模式）', () => {
-  it('no_fetch 不触网照常呈现', async () => {
+describe('surf 轮次（不联网仍执行一轮）', () => {
+  it('no_fetch 不触网，但仍执行证据更新、状态重算与收割', async () => {
     const { runSurf } = await import('../src/surf/run.ts')
     const { fakeFetchRound } = await import('./helpers.ts')
     const r = await runSurf(env.db, env.cfg, {
@@ -125,26 +125,37 @@ describe('surf 轮次（存量模式）', () => {
     const payload = r.payload as Record<string, unknown>
     expect(payload.counts).toBeDefined()
     expect(r.human).toContain('新候选')
-    expect(r.human).toContain('存量模式')
+    expect(r.human).toContain('仍执行证据更新')
   })
 
-  it('机器输出一次给全量候选；more 翻页照旧', async () => {
-    const { runSurf } = await import('../src/surf/run.ts')
+  it('surf 机器输出一次给全量当前过门条目；check 独立分页', async () => {
+    const { runSurf, runCheck } = await import('../src/surf/run.ts')
     const { fakeFetchRound } = await import('./helpers.ts')
+    env.cfg.lifecycle.trigger_videos = 2
+    env.cfg.lifecycle.trigger_videos_alt = 2
+    env.cfg.lifecycle.trigger_rounds = 1
     for (let i = 0; i < 15; i++) {
+      const head = `独特测试词${String(i).padStart(2, '0')}`
       candidates.upsertFromSignal(env.db, {
-        head: `独特测试词${String(i).padStart(2, '0')}`, channel: 'phrase', kind_guess: 'word',
-        usages: [], video_pairs: [{ aid: 9000 + i, up_mid: 0 }], day: '2026-11-09', round_id: 1,
+        head, channel: 'copy', kind_guess: 'word',
+        usages: [
+          { text: head, aid: 9000 + i, rpid: 1, root: 0, parent: 0, mid: 0, ctime: 0, chain: false },
+          { text: head, aid: 9100 + i, rpid: 2, root: 0, parent: 0, mid: 0, ctime: 0, chain: false },
+        ],
+        video_pairs: [{ aid: 9000 + i, up_mid: 0 }, { aid: 9100 + i, up_mid: 0 }],
+        day: '2026-11-09', round_id: 1,
       })
+      env.db.prepare('INSERT OR REPLACE INTO phrase_daily(phrase,day,cnt,videos) VALUES(?,?,?,?)')
+        .run(head, '2026-11-09', 2, 2)
     }
-    const full = (await runSurf(env.db, env.cfg, { noFetch: true, full: true, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
+    const fullPayload = await runSurf(env.db, env.cfg, { noFetch: true, full: true, fetch: fakeFetchRound() as never })
+    const full = fullPayload.payload as Record<string, unknown>
     expect((full.new_candidates_raw as unknown[]).length).toBe(15)
     expect(full.has_more).toBe(false)
-    const { kvSet } = await import('../src/db.ts')
-    kvSet(env.db, 'surf_page', '0')
-    const page2 = (await runSurf(env.db, env.cfg, { noFetch: true, more: true, roundSize: 10, fetch: fakeFetchRound() as never })).payload as Record<string, unknown>
+    const page2 = (await runCheck(env.db, env.cfg, { page: 1, roundSize: 10 })).payload as Record<string, unknown>
     expect((page2.new_candidates_raw as unknown[]).length).toBe(5) // 第 2 页 = 剩余 5 条
     expect(page2.has_more).toBe(false)
+    expect(page2.read_only).toBe(true)
   })
 
   it('probe 定向探测词原样传给 fetcher', async () => {

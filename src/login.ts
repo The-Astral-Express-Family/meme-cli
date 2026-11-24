@@ -31,8 +31,8 @@ export interface LoginOptions {
   timeoutMs?: number
   /** 测试注入：不弹浏览器。 */
   openBrowser?: boolean
-  /** 服务就绪回调（测试驱动轮询用；地址同时打印到控制台）。 */
-  onReady?: (url: string) => void
+  /** 服务就绪回调（测试驱动轮询用；地址同时打印到控制台）。支持异步回调。 */
+  onReady?: (url: string) => void | Promise<void>
 }
 
 export async function runLogin(opts: LoginOptions): Promise<LoginOutcome> {
@@ -45,18 +45,21 @@ export async function runLogin(opts: LoginOptions): Promise<LoginOutcome> {
     settled = true
     outcome = o
   })
-  const url = `http://127.0.0.1:${server.port}/`
-  console.error(`meme auth login: 浏览器未自动打开时，请手动访问 ${url}`)
-  opts.onReady?.(url)
-  if (opts.openBrowser !== false) openInBrowser(url)
+  try {
+    const url = `http://127.0.0.1:${server.port}/`
+    console.error(`meme auth login: 浏览器未自动打开时，请手动访问 ${url}`)
+    await opts.onReady?.(url)
+    if (opts.openBrowser !== false) openInBrowser(url)
 
-  const deadline = Date.now() + timeoutMs
-  while (!settled && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 300))
+    const deadline = Date.now() + timeoutMs
+    while (!settled && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    if (!settled) outcome = { ok: false, error: `超时（${Math.round(timeoutMs / 1000)}s）未完成登录` }
+    return outcome
+  } finally {
+    await closeServer(server.server)
   }
-  await closeServer(server.server)
-  if (!settled) outcome = { ok: false, error: `超时（${Math.round(timeoutMs / 1000)}s）未完成登录` }
-  return outcome
 }
 
 // ---------- 本地一次性服务 ----------

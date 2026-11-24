@@ -190,6 +190,8 @@ export function connect(dbPath: string): DatabaseSync {
   if (fresh) mkdirSync(dirname(dbPath), { recursive: true })
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA journal_mode=WAL')
+  // bot 进程（群聊采集）与 surf CLI 进程并发写同一文件：写锁冲突时等待而非报错
+  db.exec('PRAGMA busy_timeout=5000')
   if (fresh) {
     db.exec(DDL)
     db.exec(`PRAGMA application_id=${APP_ID}`)

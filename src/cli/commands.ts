@@ -21,7 +21,8 @@ import * as notes from '../notes.ts'
 import * as lifecycle from '../lifecycle.ts'
 import { configTemplate, configFile } from '../config.ts'
 import { checkAuthStatus, runLogin } from '../login.ts'
-import { handleAllow, handleReject, runSurf } from '../surf/run.ts'
+import { handleAllow, handleBan, runCheck, runSurf } from '../surf/run.ts'
+import { ingestGroupMessages } from '../lake.ts'
 import type { CmdSpec, Parsed } from './parser.ts'
 import { UsageError } from './parser.ts'
 import { nearby, type Runtime } from './runtime.ts'
@@ -69,7 +70,7 @@ function loadEntry(p: Parsed): unknown {
   const inline = s(p, 'entry-json')
   if (file && inline) throw new UsageError('--entry-file 与 --entry-json 只能给一个')
   if (!file && !inline) {
-    throw new UsageError('需要 --entry-file <词条JSON文件>（主通道）或 --entry-json <内联JSON>——归纳由操作员亲写：先看 surf --focus / show --level full 的证据再写 entry')
+    throw new UsageError('需要 --entry-file <词条JSON文件>（主通道）或 --entry-json <内联JSON>——归纳由操作员亲写：先看 check --focus / show --level full 的证据再写 entry')
   }
   let raw = inline
   if (file) {
@@ -177,9 +178,11 @@ async function runShow(p: Parsed, rt: Runtime): Promise<CmdOut> {
 async function runAddCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
   const db = rt.db()
   const entry = loadEntry(p)
-  const cid = s(p, 'cid')
   const text = s(p, 'text')
-  const res = await runAddEntry(db, rt.cfg, entry, { cid, text, force: b(p, 'force') })
+  const res = await runAddEntry(db, rt.cfg, entry, {
+    cids: sv(p, 'cid'), text, force: b(p, 'force'),
+    match_aliases: b(p, 'match-aliases'), holdout_texts: sv(p, 'holdout-text'),
+  })
   const [cardText, cardDict] = cards.card(res.meme)
   let human = `已入库（observing）：\n${cardText}${backtestLine(res.backtest)}`
   for (const w of res.warnings) human += `\n  ⚠ ${w}`
@@ -191,7 +194,8 @@ async function runIterateCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
   if (!mid) throw new UsageError('meme iterate 需要 <mid> 参数')
   const entry = loadEntry(p)
   const res = await runIterate(rt.db(), rt.cfg, mid, {
-    entry, force: b(p, 'force'),
+    entry, force: b(p, 'force'), cids: sv(p, 'cid'), text: s(p, 'text'),
+    match_aliases: b(p, 'match-aliases'), holdout_texts: sv(p, 'holdout-text'),
   })
   const [cardText, cardDict] = cards.card(res.meme)
   let human = `已修订（${res.meme.id} 保持 ${res.meme.state}）：\n${cardText}${backtestLine(res.backtest)}`
@@ -264,31 +268,30 @@ async function runEdit(p: Parsed, rt: Runtime): Promise<CmdOut> {
 
 // ---- surf / note / config ----
 
+async function runBanCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  if (!p._.length) throw new UsageError('meme ban 需要一个或多个精确词头')
+  const banned = handleBan(rt.db(), p._)
+  return {
+    payload: { banned, scope: 'exact-normalized-head' },
+    human: `已精确封禁：${banned.join('、')}（不做子串或语义家族封禁）`,
+  }
+}
+
+async function runAllowCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  if (!p._.length) throw new UsageError('meme allow 需要一个或多个精确词头')
+  const allowed = handleAllow(rt.db(), p._)
+  return { payload: { allowed }, human: `已解除精确封禁：${allowed.join('、')}` }
+}
+
+async function runCheckCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  const result = await runCheck(rt.db(), rt.cfg, {
+    focus: s(p, 'focus'), page: n(p, 'page'), roundSize: n(p, 'round-size'),
+  })
+  return { payload: result.payload as Record<string, Json>, human: result.human }
+}
+
 async function runSurfCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
-  const db = rt.db()
-  const allow = sv(p, 'allow')
-  const reject = sv(p, 'reject')
-  if (allow.length) {
-    const allowed = handleAllow(db, allow)
-    return { payload: { allowed }, human: `已豁免 ${allowed.join('、')}：下一轮起恢复候选资格` }
-  }
-  if (reject.length) {
-    try {
-      const { done, banned } = handleReject(db, reject, b(p, 'ban'))
-      const note = banned.length ? `（词头 ${banned.join('、')} 已沉淀为持久停用词）` : ''
-      return { payload: { rejected: done, banned }, human: `已跳过 ${done.join('、')}${note}` }
-    } catch (e) {
-      // 不存在的 cid（多半手抄错）：报错引导
-      throw new MemeError(
-        'CANDIDATE_NOT_FOUND',
-        `候选 ${(e as Error).message.replace(/^KeyError:\s*/, '')} 不存在或已出队`,
-        '用 surf 输出里的 cid。',
-      )
-    }
-  }
-  const result = await runSurf(db, rt.cfg, {
-    focus: s(p, 'focus'),
-    more: b(p, 'more'),
+  const result = await runSurf(rt.db(), rt.cfg, {
     roundSize: n(p, 'round-size'),
     noFetch: b(p, 'no-fetch'),
     probe: sv(p, 'probe'),
@@ -361,6 +364,58 @@ async function runConfig(p: Parsed, _rt: Runtime): Promise<CmdOut> {
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(file, configTemplate(), { mode: 0o600 })
   return { payload: { written: file }, human: `已写出配置模板：${file}（字段全默认，按需改 db_path/fetch/backtest 等）` }
+}
+
+// ---- ingest（QQ 群聊消息批量入池，内置 bot 桥接的落库端） ----
+
+interface IngestMsg {
+  msg_id?: unknown
+  group?: unknown
+  group_name?: unknown
+  sender?: unknown
+  sender_name?: unknown
+  content?: unknown
+  ts_ms?: unknown
+}
+
+async function runIngestCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  const file = s(p, 'file')
+  let rawText: string
+  if (file) {
+    rawText = readFileSync(file, 'utf8')
+  } else {
+    rawText = await new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = []
+      process.stdin.on('data', (c: Buffer) => chunks.push(c))
+      process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+      process.stdin.on('error', reject)
+    })
+  }
+  let arr: unknown
+  try {
+    arr = JSON.parse(rawText)
+  } catch (e) {
+    throw new MemeError('MEME_INGEST_INVALID', `消息 JSON 解析失败：${e instanceof Error ? e.message : e}`, '传 JSON 数组文件或用 --file。')
+  }
+  if (!Array.isArray(arr)) {
+    throw new MemeError('MEME_INGEST_INVALID', '消息载荷必须是 JSON 数组', '[{msg_id, group, sender, content, ts_ms?}, ...]')
+  }
+  const msgs = (arr as IngestMsg[])
+    .map((m) => ({
+      msg_id: typeof m.msg_id === 'string' ? m.msg_id : '',
+      group: typeof m.group === 'string' ? m.group : '',
+      group_name: typeof m.group_name === 'string' && m.group_name ? m.group_name : undefined,
+      sender: typeof m.sender === 'string' ? m.sender : '',
+      sender_name: typeof m.sender_name === 'string' && m.sender_name ? m.sender_name : undefined,
+      content: typeof m.content === 'string' ? m.content : '',
+      ts_ms: typeof m.ts_ms === 'number' && Number.isFinite(m.ts_ms) ? m.ts_ms : undefined,
+    }))
+    .filter((m) => m.msg_id && m.group && m.content.trim())
+  const res = ingestGroupMessages(rt.db(), msgs)
+  return {
+    payload: { ingested: { inserted: res.inserted, duplicates: res.duplicates, skipped: arr.length - msgs.length } },
+    human: `群聊消息入池：新增 ${res.inserted}，重复跳过 ${res.duplicates}（round_id=0，下一轮 surf 开局认领）`,
+  }
 }
 
 // ---- auth（仿 gh auth：login/status/logout） ----
@@ -456,10 +511,12 @@ export const COMMANDS: Record<string, CmdDef> = {
   add: {
     name: 'add',
     args: '--entry-file F | --entry-json J',
-    desc: '收录新梗：操作员亲写词条 JSON（归纳不需要外部 LLM，写词条前先看证据：surf --focus <cid> / show --level full）。--cid/--text 关联候选证据并收口候选。重名报 MEME_DUPLICATE 引导 iterate',
+    desc: '收录新梗：操作员亲写词条 JSON。--cid 可重复，--text 精确/唯一解析，--holdout-text 提供独立留出，--match-aliases 可选开启别名匹配；重名引导 iterate',
     opts: {
-      cid: { type: 'string', desc: '候选 id（surf 输出的 c_NNNN）：候选用例并入 backtest 正例并收口候选' },
-      text: { type: 'string', desc: '裸文本：同头候选自动合流收口' },
+      cid: { type: 'string', multiple: true, desc: '候选 id（可重复）：候选用例并入 backtest 正例并收口候选' },
+      text: { type: 'string', desc: '候选词头或包含候选的文本：先精确、再唯一前缀/包含解析，多义时要求 --cid' },
+      'match-aliases': { type: 'boolean', desc: '把非槽位 aliases 合并进 lex matcher（交互梗除外）；默认 aliases 仅作元数据' },
+      'holdout-text': { type: 'string', multiple: true, desc: '显式留出例句（可重复）；交互梗可用“上句：X 本句：Y”' },
       'entry-file': { type: 'string', desc: '词条 JSON 文件路径（主通道，必给其一）' },
       'entry-json': { type: 'string', desc: '词条 JSON 内联（短 entry）' },
       force: { type: 'boolean', desc: 'backtest 未达标仍入库（纯向量降级，进审计）' },
@@ -473,7 +530,11 @@ export const COMMANDS: Record<string, CmdDef> = {
     opts: {
       'entry-file': { type: 'string', desc: '修订版词条 JSON 文件（必给其一）' },
       'entry-json': { type: 'string', desc: '修订版词条 JSON 内联' },
-      force: { type: 'boolean', desc: 'backtest 未达标仍更新（纯向量降级，进审计）' },
+      cid: { type: 'string', multiple: true, desc: '关联候选 id（可重复）：并入独立证据并在成功后精确收口' },
+      text: { type: 'string', desc: '候选词头或包含候选的文本（唯一匹配时解析）' },
+      'match-aliases': { type: 'boolean', desc: '把非槽位 aliases 合并进 lex matcher（交互梗除外）' },
+      'holdout-text': { type: 'string', multiple: true, desc: '显式留出例句（可重复）；交互梗可用“上句：X 本句：Y”' },
+      force: { type: 'boolean', desc: 'backtest 未达标仍更新；恢复 matcher 缺独立证据时也可显式绕过（进审计）' },
     },
     run: runIterateCmd,
   },
@@ -493,21 +554,50 @@ export const COMMANDS: Record<string, CmdDef> = {
     },
     run: runEdit,
   },
+  ban: {
+    name: 'ban',
+    args: '<head...>',
+    desc: '精确封禁词头（跨 phrase/copy/skeleton/image）；只匹配归一化完整词头，不做子串或语义家族封禁',
+    opts: {},
+    run: runBanCmd,
+  },
+  allow: {
+    name: 'allow',
+    args: '<head...>',
+    desc: '精确解除封禁，并恢复被该封禁压住的候选资格',
+    opts: {},
+    run: runAllowCmd,
+  },
+  check: {
+    name: 'check',
+    args: '',
+    desc: '只读查看当前窗口内过触发门的条目：不推进轮次、不认领 QQ、不收割、不写 kv、不改候选状态',
+    opts: {
+      focus: { type: 'string', desc: '深入单个候选的完整证据（含父评文本）' },
+      page: { type: 'number', desc: '页码（从 0 开始）' },
+      'round-size': { type: 'number', desc: '每页条数（默认取配置）' },
+    },
+    run: runCheckCmd,
+  },
   surf: {
     name: 'surf',
     args: '',
-    desc: '一轮 B站策展：增量获取 → 证据更新（零 LLM）→ 四区呈现（新候选/动态/衰减/欠账）。一轮数分钟，bash 调用给 timeout 或 run_in_background',
+    desc: '一轮策展：获取（除非 --no-fetch）→ 证据更新 → 状态重算 → 呈现当前过门条目。一轮数分钟，bash 调用给 timeout 或 run_in_background',
     opts: {
-      focus: { type: 'string', desc: '深入单个候选的完整证据视图（cid）' },
-      more: { type: 'boolean', desc: '翻页：呈现下一页候选（不重新获取）' },
-      reject: { type: 'string', multiple: true, desc: '显式跳过候选（cid，可重复，幂等）' },
-      ban: { type: 'boolean', desc: '连同 reject：把词头沉淀为持久停用词' },
-      allow: { type: 'string', multiple: true, desc: '豁免词：从停用词中放行（误杀逃生口）' },
       'round-size': { type: 'number', desc: '每页呈现条数（默认取配置）' },
-      'no-fetch': { type: 'boolean', desc: '跳过获取，纯存量呈现' },
+      'no-fetch': { type: 'boolean', desc: '不联网获取，但仍执行一轮：认领群聊、更新证据、重算状态与收割' },
       probe: { type: 'string', multiple: true, desc: '定向搜索探测词（需 meme login 登录态）' },
     },
     run: runSurfCmd,
+  },
+  ingest: {
+    name: 'ingest',
+    args: '[--file F]',
+    desc: '群聊消息批量入池（内置 bot 桥接的落库端，也可手工喂数据）：JSON 数组 [{msg_id, group, sender, content, ts_ms?}]。静默写原始湖（round_id=0），下一轮 surf 开局认领并与 B站采集一并计算',
+    opts: {
+      file: { type: 'string', desc: '消息 JSON 文件路径（缺省读 stdin）' },
+    },
+    run: runIngestCmd,
   },
   note: {
     name: 'note',

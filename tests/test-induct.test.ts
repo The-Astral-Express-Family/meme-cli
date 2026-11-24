@@ -40,7 +40,7 @@ function seedCandidateWithEvidence(db: ReturnType<typeof openDb>): string {
 describe('add：操作员亲写 entry', () => {
   it('闸门全保留；审计带 entry_notes；候选收口 inducted', async () => {
     const cid = seedCandidateWithEvidence(env.db)
-    const res = await runAddEntry(env.db, env.cfg, entry(), { cid })
+    const res = await runAddEntry(env.db, env.cfg, entry(), { cids: [cid], holdout_texts: ['青铜巨像独立留出例'] })
     expect(res.meme.id.startsWith('m_')).toBe(true)
     expect(res.meme.state).toBe('observing')
     expect(res.meme.matcher).not.toBeNull()
@@ -56,7 +56,9 @@ describe('add：操作员亲写 entry', () => {
     const cid = seedCandidateWithEvidence(env.db)
     const bad = entry('绝不存在词')
     bad.matcher = { patterns: [{ kind: 'lex', terms: ['绝不存在的词'] }], constraints: {} }
-    await expect(runAddEntry(env.db, env.cfg, bad, { cid })).rejects.toMatchObject({ code: 'MEME_BACKTEST_FAIL' })
+    await expect(runAddEntry(env.db, env.cfg, bad, {
+      cids: [cid], holdout_texts: ['绝不存在词独立留出例'],
+    })).rejects.toMatchObject({ code: 'MEME_BACKTEST_FAIL' })
     expect(entries.get(env.db, 'm_0001')).toBeNull() // 未入库
     expect(candidates.get(env.db, cid)!.state).not.toBe('inducted')
   })
@@ -65,11 +67,21 @@ describe('add：操作员亲写 entry', () => {
     const cid = seedCandidateWithEvidence(env.db)
     const bad = entry('绝不存在词二')
     bad.matcher = { patterns: [{ kind: 'lex', terms: ['绝不存在的词二'] }], constraints: {} }
-    const res = await runAddEntry(env.db, env.cfg, bad, { cid, force: true })
+    const res = await runAddEntry(env.db, env.cfg, bad, {
+      cids: [cid], force: true, holdout_texts: ['绝不存在词二独立留出例'],
+    })
     expect(res.meme.matcher).toBeNull()
     expect(res.warnings.length).toBeGreaterThan(0)
     const audits = audit.forMeme(env.db, res.meme.id)
     expect((audits[0].payload as { forced_vector_only: boolean }).forced_vector_only).toBe(true)
+  })
+
+  it('force 但 matcher 实际通过时，forced_vector_only 记录 false', async () => {
+    const good = { ...entry('正常词'), examples: ['正常词例句'] }
+    const res = await runAddEntry(env.db, env.cfg, good, { force: true })
+    expect(res.meme.matcher).not.toBeNull()
+    const logs = audit.forMeme(env.db, res.meme.id)
+    expect((logs[0].payload as { forced_vector_only: boolean }).forced_vector_only).toBe(false)
   })
 
   it('schema 不合法 → MEME_ENTRY_INVALID', async () => {
@@ -125,6 +137,29 @@ describe('重名守卫 + iterate', () => {
     expect(res.meme.aliases).toContain('脚软了')
     const logs = env.db.prepare("SELECT action FROM audit_log WHERE meme_id='m_0001' ORDER BY seq").all() as { action: string }[]
     expect(logs.map((r) => r.action)).toEqual(['induct', 'iterate'])
+  })
+
+  it('iterate 接受多个 cid，成功后精确收口并审计 closed cids/heads', async () => {
+    await runAddEntry(env.db, env.cfg, entry2())
+    const c1 = candidates.upsertFromSignal(env.db, {
+      head: '脚软了', channel: 'phrase', kind_guess: 'word', usages: [],
+      video_pairs: [{ aid: 1, up_mid: 1 }], round_id: 1,
+    })
+    const c2 = candidates.upsertFromSignal(env.db, {
+      head: '我软脚了', channel: 'copy', kind_guess: 'word', usages: [],
+      video_pairs: [{ aid: 2, up_mid: 2 }], round_id: 1,
+    })
+    const res = await runIterate(env.db, env.cfg, 'm_0001', {
+      entry: entry2('修订版', ['软脚了', '脚软了']), cids: [c1.cid, c2.cid],
+      holdout_texts: ['决胜局我软脚了'],
+    })
+    expect(res.meme.id).toBe('m_0001')
+    expect(candidates.get(env.db, c1.cid)!.state).toBe('inducted')
+    expect(candidates.get(env.db, c2.cid)!.state).toBe('inducted')
+    const logs = audit.forMeme(env.db, 'm_0001')
+    const payload = logs.find((l) => l.action === 'iterate')!.payload as { closed_cids: string[]; closed_heads: string[] }
+    expect(payload.closed_cids.sort()).toEqual([c1.cid, c2.cid].sort())
+    expect(payload.closed_heads.sort()).toEqual(['脚软了', '我软脚了'].sort())
   })
 
   it('iterate 证据收集：当前 matcher 在湖中的野外命中文本进入证据包', async () => {

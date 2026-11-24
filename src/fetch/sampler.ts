@@ -84,7 +84,8 @@ async function collectVideos(
     await grab(`rank:${rid}`, () => bili.rankRegion(session, rid))
   }
   if (cfg.related_of_top) {
-    const hosts = (db.prepare('SELECT aid FROM lake_videos ORDER BY reply_count DESC LIMIT ?')
+    // QQ 群占位行（负数 aid）不是 B站视频，不能当顺藤摸瓜的种子
+    const hosts = (db.prepare("SELECT aid FROM lake_videos WHERE source != 'qq' ORDER BY reply_count DESC LIMIT ?")
       .all(cfg.related_of_top) as Row[]).map((r) => r.aid as number)
     for (const aid of hosts) {
       await grab(`related:${aid}`, () => bili.related(session, aid)) // 顺藤摸瓜

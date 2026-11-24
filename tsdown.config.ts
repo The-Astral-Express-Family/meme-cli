@@ -11,6 +11,9 @@ export default defineConfig([
     target: 'node22',
     unbundle: true,
     publint: false,
+    // harness 运行时包走 peer 语义：保留裸导入，由宿主进程的副本解析
+    // （vendor 进 lib/node_modules 会缺 package.json 且遮蔽宿主版本）
+    external: [/^@deepseek-ai\//, /^@tencent-connect\//],
   },
   {
     entry: ['src/cli.ts'],

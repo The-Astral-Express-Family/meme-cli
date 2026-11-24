@@ -57,9 +57,9 @@ export function upsertFromSignal(
     ).run(cid, opts.head, opts.kind_guess, opts.channel, 'pending', ts, ts, '[]', '[]', ts, ts)
     row = db.prepare('SELECT * FROM candidates WHERE cid=?').get(cid) as Row
   } else if (row.state === 'rejected') {
-    // 拒绝不是永刑：新浪再来 = 新证据，重开候选（显式跳过只代表当时的判断）
-    db.prepare("UPDATE candidates SET state='pending', rejected_at=NULL, reject_reason=NULL WHERE cid=?")
-      .run(row.cid)
+    // 封禁候选在解除封禁或证据重新合流时回到 pending
+    db.prepare("UPDATE candidates SET state='pending', rejected_at=NULL, reject_reason=NULL, updated_at=? WHERE cid=?")
+      .run(ts, row.cid)
     row = db.prepare('SELECT * FROM candidates WHERE cid=?').get(row.cid) as Row
   }
   const cand = fromRow(row)
@@ -87,8 +87,13 @@ export function upsertFromSignal(
   cand.distinct_videos = stats.v as number
   cand.distinct_ups = stats.u as number
   cand.last_seen = ts
-  cand.surfs_seen += 1
-  if (roundId) cand.last_round = roundId
+  cand.updated_at = ts
+  if (roundId) {
+    if (cand.last_round !== roundId) cand.surfs_seen += 1
+    cand.last_round = roundId
+  } else {
+    cand.surfs_seen += 1
+  }
   save(db, cand)
   return cand
 }
@@ -122,21 +127,6 @@ export function allActive(db: DatabaseSync): Candidate[] {
   return (rows as Row[]).map(fromRow)
 }
 
-/**
- * 显式跳过：pending/triggered → rejected。
- * - true：本次生效；false：已出队（幂等成功）；throw：cid 不存在（多半手抄错）。
- */
-export function reject(db: DatabaseSync, cid: string, reason = 'operator'): boolean {
-  const res = db.prepare(
-    "UPDATE candidates SET state='rejected', rejected_at=?, reject_reason=? "
-    + "WHERE cid=? AND state IN ('pending','triggered')",
-  ).run(nowIso(), reason, cid)
-  if (res.changes > 0) return true
-  const exists = db.prepare('SELECT 1 AS x FROM candidates WHERE cid=?').get(cid)
-  if (exists) return false // 已出队：幂等
-  throw new Error(`KeyError: ${cid}`)
-}
-
 // ---- 候选池卫生：治"同句分身 + 复制粘贴切片"污染 ----
 
 export interface HygieneResult {
@@ -148,15 +138,17 @@ export interface HygieneResult {
 
 /**
  * 候选池卫生（每轮信号更新末尾自愈）：
- * 1) 纯复制粘贴剪枝：phrase 候选跨 ≥2 视频但用例归一后只有一句——这是复读通道的
- *    领地（整句重复由 copy 候选承载），phrase 侧切片（代练广告/活动文案的子串）删除；
+ * 1) 纯复制粘贴剪枝：phrase/skeleton 候选跨 ≥2 视频但用例归一后只有一句——这是
+ *    复读通道的领地（整句重复由 copy 候选承载），phrase 侧切片（代练广告/活动文案
+ *    的子串）删除；skeleton 侧同作者同句的"模板"是广告复读（模板的前提是填充多样，
+ *    单文本即假公式，2026-11-22 实测 RunFast API 广告成模板）；
  * 2) 包含族合并：head 互为包含且视频重合 ≥50%×较小 dv → 并入排名更高的一方
  *    （phrase_daily 终身计数 desc → dv desc → 更长 head desc），证据并集、视频迁移。
  *    长梗并入短词头时多一道容器守卫（见 CONTAINER_DV_RATIO）：泛用容器词
  *    （"感觉" dv=49）的高计数来自无关用法，会吞掉恰好是它子串的真梗
  *    （"感觉不如"），合并改为双方保留。
- * 只动 phrase 通道——copy/skeleton/image 各有独立判别语义；rejected 不参与
- * （操作员已裁决）。candidates 是可从原始湖重建的派生状态，删除安全。
+ * 合并只动 phrase 通道——copy/skeleton/image 各有独立判别语义；rejected 不参与
+ * （已封禁或已收录）。candidates 是可从原始湖重建的派生状态，删除安全。
  */
 
 /**
@@ -171,6 +163,11 @@ export function hygienePass(db: DatabaseSync): HygieneResult {
     "SELECT * FROM candidates WHERE channel='phrase' AND state IN ('pending','triggered')",
   ).all() as Row[]
   const cands = rows.map(fromRow)
+  // skeleton 只参与第 1 步垃圾剪枝；合并步骤（2/3）的计数与容器守卫逻辑按
+  // phrase_daily 终身计数设计，不适用于模板
+  const skelCands = (db.prepare(
+    "SELECT * FROM candidates WHERE channel='skeleton' AND state IN ('pending','triggered')",
+  ).all() as Row[]).map(fromRow)
   const delC = db.prepare('DELETE FROM candidates WHERE cid=?')
   const delV = db.prepare('DELETE FROM cand_video WHERE cid=?')
 
@@ -180,7 +177,7 @@ export function hygienePass(db: DatabaseSync): HygieneResult {
   //    掩码成 <num> 再丢弃，"评论0/评论1/…" 会坍缩成一句造成误剪。
   const spamKey = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
   const dead = new Set<string>()
-  for (const c of cands) {
+  for (const c of [...cands, ...skelCands]) {
     if (c.distinct_videos < 2 || !c.evidence_usages.length) continue
     const texts = new Set(c.evidence_usages.map((u) => spamKey(u.text)))
     const mids = new Set(c.evidence_usages.map((u) => u.mid).filter((m) => m > 0))
@@ -242,6 +239,43 @@ export function hygienePass(db: DatabaseSync): HygieneResult {
       insV.run(host.cid, v.aid, v.up_mid, ts)
       vids.get(host.cid)!.push(v) // 后续兄弟与 host 的重合判定要用上并集
     }
+    const st = stats.get(host.cid) as Row
+    host.distinct_videos = st.v as number
+    host.distinct_ups = st.u as number
+    if (c.first_seen < host.first_seen) host.first_seen = c.first_seen
+    if (c.state === 'triggered' && host.state !== 'triggered') host.state = 'triggered'
+    host.updated_at = ts
+    save(db, host)
+    delC.run(c.cid)
+    delV.run(c.cid)
+    res.merged += 1
+  }
+
+  // 3) 固定⊂模板吸并：固定头的**字面**是模板核心的扩展实例（bin哥你做人真的可以
+  //    ⊃ 模板"XX你做人真的可以"的核心 做人真的可以）且视频重合 → 并给模板，
+  //    让操作员看到泛化单元而非单一实例。只吸"比核心长"的——模板核心本身
+  //    （难绷 vs <X>难绷）是独立梗单元，永不被自己的模板吸收（泛吃特防线）；
+  //    容器守卫同方向适用（模板 dv 远超固定头 → 它的核心证据来自无关语境）。
+  const tplRows = db.prepare(
+    "SELECT * FROM candidates WHERE channel='skeleton' AND state IN ('pending','triggered')",
+  ).all() as Row[]
+  const tpls = tplRows.map(fromRow)
+  const coreOf = (t: Candidate): string => t.head.split(' ').filter((x) => x && !x.startsWith('<')).join('')
+  for (const c of keepers) {
+    if (c.channel !== 'phrase' && c.channel !== 'copy') continue
+    const host = tpls.find((t) => {
+      const core = coreOf(t)
+      if (core.length < 2 || c.head.length <= core.length) return false
+      if (!c.head.includes(core)) return false
+      if (shared(t, c) * 2 < Math.min(t.distinct_videos, c.distinct_videos)) return false
+      if (t.distinct_videos > c.distinct_videos * CONTAINER_DV_RATIO) return false
+      return true
+    })
+    if (!host) continue
+    const uniq = new Map<string, UsageSample>()
+    for (const u of [...host.evidence_usages, ...c.evidence_usages]) uniq.set(`${u.text}\x00${u.rpid}`, u)
+    host.evidence_usages = [...uniq.values()].slice(-40)
+    for (const v of vids.get(c.cid) ?? []) insV.run(host.cid, v.aid, v.up_mid, ts)
     const st = stats.get(host.cid) as Row
     host.distinct_videos = st.v as number
     host.distinct_ups = st.u as number
