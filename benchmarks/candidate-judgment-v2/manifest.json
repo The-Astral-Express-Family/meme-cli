@@ -1,0 +1,24 @@
+{
+  "dataset_id": "candidate-judgment-v2",
+  "version": 2,
+  "created_at": "2026-11-25",
+  "as_of": "2026-11-23",
+  "case_count": 24,
+  "based_on": "candidate-judgment-v1",
+  "source": {
+    "db": "operator ~/.meme/memes.db snapshot after v0.13 rebuild",
+    "db_sha256": "d5bb3d361c5af0deedaec0783fb9dfcb73a652c152d04dc9790fe59ee5df50e9",
+    "surf_round": 22
+  },
+  "hashes": {
+    "prompt.md": "f05208585d3f765b4117c96e03e5ab3596dd99ea3b418f4cc6515cbdd5167a0c",
+    "cases.jsonl": "fc6a097ef5771ef56b01cb5e86a949faf47b59a7621fd315af28527ff7c2f109",
+    "labels.jsonl": "dbf64fd6a1eac02e7e4c3c6ae22c7ebc0d645a8a471ee87f860d381911f1db1e"
+  },
+  "labels_are_evaluation_only": true,
+  "notes": [
+    "Cases and gold labels are byte-identical to v1; only the model-visible context changed.",
+    "The prompt uses the repaired runtime skill manual and repaired judgment guide.",
+    "No v1 model outputs are copied into v2; every v2 score requires a fresh run."
+  ]
+}

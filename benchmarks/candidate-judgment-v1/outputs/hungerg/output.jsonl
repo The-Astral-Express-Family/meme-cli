@@ -1,0 +1,24 @@
+{"case_id":"cjv1-001","source_cid":"c_58951","head":"没绷住","verdict":"meme","family_id":"beng","canonical_head":"没绷住","confidence":"high","rationale":"跨视频独立复读，且“破绷了/炸绷了”等变体明确，是忍不住笑的玩梗表达。","evidence_ids":[]}
+{"case_id":"cjv1-002","source_cid":"c_53586","head":"绷住","verdict":"meme","family_id":"beng","canonical_head":"没绷住","confidence":"high","rationale":"与“没绷住”同指忍不住笑，证据含“没绷住/绷不住了”，并入 m_0004。","evidence_ids":[]}
+{"case_id":"cjv1-003","source_cid":"c_55174","head":"神了","verdict":"meme","family_id":"shen","canonical_head":"神了","confidence":"high","rationale":"用例反复表达震惊、无奈或哭笑不得，不是普通客观夸赞，按手册主判据收录。","evidence_ids":[]}
+{"case_id":"cjv1-004","source_cid":"c_53690","head":"神","verdict":"meme","family_id":"shen","canonical_head":"神了","confidence":"high","rationale":"单字“神”多为专名或“神了”截断；并入 m_0005，matcher 不匹配裸“神”。","evidence_ids":[]}
+{"case_id":"cjv1-005","source_cid":"c_53433","head":"<X>死了","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"样本混有真实死亡与“笑死了”，槽位未形成可复用公式，属语法模板误抽。","evidence_ids":[]}
+{"case_id":"cjv1-006","source_cid":"c_52622","head":"死了","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"用例多为字面死亡或“笑死了”内部片段，无独立新用法，不封禁。","evidence_ids":[]}
+{"case_id":"cjv1-007","source_cid":"c_52954","head":"笑死","verdict":"meme","family_id":"xiaosi","canonical_head":"笑死","confidence":"high","rationale":"跨视频固定表达与变体丰富，语义是被逗笑，手册亦将其列为可积累真梗。","evidence_ids":[]}
+{"case_id":"cjv1-008","source_cid":"c_55390","head":"鲸鲸","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"用例均在称呼特定鱼角色或博主，是话题名而非可复用玩梗结构。","evidence_ids":[]}
+{"case_id":"cjv1-009","source_cid":"c_53595","head":"死我了","verdict":"meme","family_id":"xiaosi","canonical_head":"笑死","confidence":"high","rationale":"全部用例实为“笑死我了”的截断，归并 m_0006，不收录裸“死我了”。","evidence_ids":[]}
+{"case_id":"cjv1-010","source_cid":"c_59058","head":"豆姐","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"用例围绕同一 AI 角色昵称展开，无公式、化用或独立事件含义。","evidence_ids":[]}
+{"case_id":"cjv1-011","source_cid":"c_52303","head":"牢师","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"是角色昵称，用例多在评价该角色，属于话题词而非梗。","evidence_ids":[]}
+{"case_id":"cjv1-012","source_cid":"c_57365","head":"泡","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"仅见“多泡一会儿/茶包泡20包”的字面用法，是普通动词误抽。","evidence_ids":[]}
+{"case_id":"cjv1-013","source_cid":"c_53396","head":"绷了","verdict":"meme","family_id":"beng","canonical_head":"没绷住","confidence":"high","rationale":"“破绷了/炸绷了”与“没绷住”同族，并入 m_0004。","evidence_ids":[]}
+{"case_id":"cjv1-014","source_cid":"c_52990","head":"爆","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"medium","rationale":"样本横跨抽卡、泡沫、爆发力等字面义，未形成稳定新用法。","evidence_ids":[]}
+{"case_id":"cjv1-015","source_cid":"c_57003","head":"老师说","verdict":"meme","family_id":"teacher-picture","canonical_head":"老师说过图片是没有声音的","confidence":"medium","rationale":"反复出现完整句“老师说过图片没有声音”，按截断规则补全并收录。","evidence_ids":[]}
+{"case_id":"cjv1-016","source_cid":"c_57792","head":"一手","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"“留了一手/一手铸造/一手缓存”均为旧词字面义，无玩梗证据。","evidence_ids":[]}
+{"case_id":"cjv1-017","source_cid":"c_56537","head":"绮","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"仅从表情装扮名“绮星梦使”漏抽单字，无语义且会反复误报，封禁词头。","evidence_ids":[]}
+{"case_id":"cjv1-018","source_cid":"c_58368","head":"家伙","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"“你这家伙”是普通称呼，其余用例亦无新惯用义。","evidence_ids":[]}
+{"case_id":"cjv1-019","source_cid":"c_53093","head":"nb","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"是“牛逼”的既有泛夸写法，用例均为普通赞叹，无近期新用法。","evidence_ids":[]}
+{"case_id":"cjv1-020","source_cid":"c_57249","head":"股市","verdict":"abstain","family_id":null,"canonical_head":null,"confidence":"low","rationale":"“浪漫股市/来股市”有重复但缺出句场景，无法区分固定玩梗与普通讨论。","evidence_ids":[]}
+{"case_id":"cjv1-021","source_cid":"c_52795","head":"参与","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"混有普通动词与带推广链接的广告模板，无独立梗义，不封禁泛用词头。","evidence_ids":[]}
+{"case_id":"cjv1-022","source_cid":"c_52991","head":"赢","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"样本为普通胜利用法及“参与活动赢奖”广告，是泛用词和模板噪音。","evidence_ids":[]}
+{"case_id":"cjv1-023","source_cid":"c_53718","head":"艺术","verdict":"not-meme","family_id":null,"canonical_head":null,"confidence":"high","rationale":"“太艺术了/艺术成分”等均为普通评价或广告话术，无稳定新梗义。","evidence_ids":[]}
+{"case_id":"cjv1-024","source_cid":"c_57217","head":"你太","verdict":"meme","family_id":"nitai-sexiness","canonical_head":"没有吧，是你太性感了","confidence":"medium","rationale":"高频完整回应把“感性”听成“性感”，按交互梗补全触发句与回应句。","evidence_ids":[]}

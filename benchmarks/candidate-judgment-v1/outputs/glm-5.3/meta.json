@@ -1,0 +1,10 @@
+{
+  "model": "GLM-5.3",
+  "dataset_version": "candidate-judgment-v1",
+  "run_order": 3,
+  "prompt_sha256": "2f0474a13a8c7a3f2af46fd38c4dfcac662a8efe0e696af2a0c6ab4e3b32ad18",
+  "source": "normalized from archived human-readable report; no model re-run",
+  "duration_ms": 520241,
+  "tokens": 1143985,
+  "tool_uses": 35
+}

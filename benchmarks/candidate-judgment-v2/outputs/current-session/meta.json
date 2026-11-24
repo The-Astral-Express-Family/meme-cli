@@ -1,0 +1,10 @@
+{
+  "model": "HungerG",
+  "dataset_version": "candidate-judgment-v2",
+  "run_order": 1,
+  "prompt_sha256": "f05208585d3f765b4117c96e03e5ab3596dd99ea3b418f4cc6515cbdd5167a0c",
+  "source": "fresh subagent run under repaired context; no v1 outputs reused",
+  "duration_ms": 236295,
+  "tokens": 630606,
+  "tool_uses": 11
+}
