@@ -161,7 +161,7 @@ npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接
 
 ## 已知边界（v0.13）
 
-- 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载；离线时向量层降级为纯词法。
+- 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载（缓存于 `~/.meme/model_cache`）；离线或不想下载时用 `MEME_EMBED_OFF=1` 强制关闭向量层——`lookup`/`search`/`surf`/`check` 仍可用，只是语义标记与向量召回缺失，全部退回纯词法。
 - B站搜索接口需登录态（`meme auth login`），匿名时探测通道自动跳过；`meme auth status` 可先查状态。
 - 图梗只发现（pHash 簇）不识图——理解留给操作员看图判断（check --focus 会列出候选的来源视频与用例）。
 - 收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM；闸门（JSON 校验 / matcher 编译 / backtest）全本地。

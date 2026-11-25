@@ -291,11 +291,14 @@ async function runCheckCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
 }
 
 async function runSurfCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
+  const roundSize = n(p, 'round-size')
   const result = await runSurf(rt.db(), rt.cfg, {
-    roundSize: n(p, 'round-size'),
+    roundSize,
     noFetch: b(p, 'no-fetch'),
     probe: sv(p, 'probe'),
-    full: true, // agent 输出一次给全量候选（不翻页）
+    // 不给 --round-size：agent 一次拿全量（不翻页）；显式给了就按页切，
+    // 让这个 flag 名副其实，且不改变默认行为
+    full: roundSize === undefined,
   })
   return { payload: result.payload as Record<string, Json>, human: result.human }
 }
@@ -584,7 +587,7 @@ export const COMMANDS: Record<string, CmdDef> = {
     args: '',
     desc: '一轮策展：获取（除非 --no-fetch）→ 证据更新 → 状态重算 → 呈现当前过门条目。一轮数分钟，bash 调用给 timeout 或 run_in_background',
     opts: {
-      'round-size': { type: 'number', desc: '每页呈现条数（默认取配置）' },
+      'round-size': { type: 'number', desc: '每页呈现条数（默认取配置）；不给则一次返回全部过门条目，给了则按页切（第 0 页，后续页用 check --page）' },
       'no-fetch': { type: 'boolean', desc: '不联网获取，但仍执行一轮：认领群聊、更新证据、重算状态与收割' },
       probe: { type: 'string', multiple: true, desc: '定向搜索探测词（需 meme login 登录态）' },
     },

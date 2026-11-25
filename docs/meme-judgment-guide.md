@@ -123,3 +123,5 @@ npx tsx scripts/rebuild.ts                 # 候选池重建预览；--apply 就
 ```
 
 `surf` 只负责执行轮次；焦点查看与分页统一使用 `check`。`rejected` 状态用于记录精确封禁，`allow` 可恢复对应候选；不提供 `remove`/`reject` 命令。
+
+`surf --round-size N` 显式给了就按页切（第 0 页 + `has_more`），不给则一次返回全部过门条目；要看后续页用 `check --page N`。首次运行会联网下载嵌入模型（缓存于 `~/.meme/model_cache`）；离线或不想下载时加 `MEME_EMBED_OFF=1` 强制关闭向量层——语义标记与向量召回缺失，其余判定照常。
