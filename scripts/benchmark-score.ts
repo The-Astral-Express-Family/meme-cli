@@ -3,7 +3,7 @@
  *
  * 用法：
  *   npx tsx scripts/benchmark-score.ts
- *   npx tsx scripts/benchmark-score.ts --format markdown --output benchmarks/candidate-judgment-v1/report.md
+ *   npx tsx scripts/benchmark-score.ts --format markdown --output benchmarks/candidate-judgment-v3/report.md
  *
  * 评分刻意分两层：
  * - candidate_verdict：候选词头本身是否立为梗（截断头/宿主词在这里可以是 not-meme）；
@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { z } from 'zod'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const DEFAULT_DATASET = join(ROOT, 'benchmarks', 'candidate-judgment-v2')
+const DEFAULT_DATASET = join(ROOT, 'benchmarks', 'candidate-judgment-v3')
 
 const VerdictSchema = z.enum(['meme', 'not-meme', 'conditional', 'abstain'])
 const GoldVerdictSchema = z.enum(['meme', 'not-meme', 'conditional'])

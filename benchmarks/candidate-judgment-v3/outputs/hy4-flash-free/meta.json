@@ -1,0 +1,7 @@
+{
+  "model": "hy4-flash-free",
+  "dataset_version": "candidate-judgment-v3",
+  "run_order": 3,
+  "prompt_sha256": "c4d9c5118d38bddb07edec5293cb3db9d1fb8e42129edd8797292097f8cc4cdb",
+  "source": "fresh independent run under candidate-judgment-v3"
+}
