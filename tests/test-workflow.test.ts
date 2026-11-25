@@ -164,6 +164,36 @@ describe('精确 ban 与长标签', () => {
     expect(g.has('启动器')).toBe(false)
   })
 
+  it('封禁键保留数字：版本词头不撞键，纯数字词头可封', () => {
+    expect(evidence.banKey('绝区零2.0')).toBe('绝区零20')
+    expect(evidence.banKey('绝区零2.1')).toBe('绝区零21')
+    expect(evidence.banKey('22娘')).toBe('22娘')
+    expect(evidence.banKey('666')).toBe('666')
+    expect(evidence.banKey('！？')).toBe('')
+    // 旧口径（normalizeHead→normText）会把数字掩成槽位后丢弃
+    expect(evidence.normalizeHead('22娘')).toBe('娘')
+  })
+
+  it('ban 22娘 不误伤词头 娘；版本词头各自独立；停用词表认封禁键', () => {
+    const mother = candidate('娘', 'phrase', [usage('娘')])
+    const v2 = candidate('绝区零2.0', 'phrase', [usage('绝区零2.0')])
+    const v21 = candidate('绝区零2.1', 'phrase', [usage('绝区零2.1')])
+    surf.handleBan(env.db, ['22娘'])
+    expect(candidates.get(env.db, mother.cid)!.state).toBe('pending')
+    surf.handleBan(env.db, ['绝区零2.0'])
+    expect(candidates.get(env.db, v2.cid)!.state).toBe('rejected')
+    expect(candidates.get(env.db, v21.cid)!.state).toBe('pending')
+    surf.handleBan(env.db, ['666'])
+    const g = genericSet(env.db, env.cfg)
+    expect(g.has('666')).toBe(true)
+    expect(g.has('绝区零20')).toBe(true)
+    expect(g.has('绝区零')).toBe(false)
+    // 提取层按同一口径判定：封禁键命中、版本不同则不命中
+    expect(evidence.isStopped(g, '绝区零2.0')).toBe(true)
+    expect(evidence.isStopped(g, '绝区零2.1')).toBe(false)
+    expect(evidence.isStopped(g, '娘')).toBe(false)
+  })
+
   it('模板与整句复读抽取都按最终完整 head 精确过滤，copy 不截断', () => {
     const long = '这是一条超过二十四个字符的完整复读句用于验证不截断'
     const units = [

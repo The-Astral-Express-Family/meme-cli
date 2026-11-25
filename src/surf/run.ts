@@ -14,7 +14,7 @@ import type { ResolvedConfig } from '../config.ts'
 import { resolveSessdata } from '../config.ts'
 import { updateSignals } from '../detect/signals.ts'
 import { candidateNotFound, MemeError } from '../errors.ts'
-import { normalizeHead } from '../detect/evidence.ts'
+import { banKey } from '../detect/evidence.ts'
 import { loadMatchers, scanTexts } from '../match/pipeline.ts'
 import { nowIso, todayIso } from '../models.ts'
 import { claimPendingIngest, reapLake } from '../lake.ts'
@@ -30,15 +30,15 @@ const stringList = (db: DatabaseSync, key: string): string[] => {
 
 /** allow：精确解除封禁，并保留对内置/配置停用词的可逆豁免。 */
 export function handleAllow(db: DatabaseSync, words: string[]): string[] {
-  const allowed = [...new Set(words.map(normalizeHead).filter(Boolean))]
+  const allowed = [...new Set(words.map(banKey).filter(Boolean))]
   if (!allowed.length) throw new MemeError('MEME_HEAD_INVALID', 'allow 至少需要一个非空词头', '传入要解除封禁的精确词头。')
   tx(db, () => {
-    const bans = stringList(db, 'generic_auto').map(normalizeHead).filter((w) => !allowed.includes(w))
-    const exemptions = [...new Set([...stringList(db, 'generic_allow').map(normalizeHead), ...allowed])]
+    const bans = stringList(db, 'generic_auto').map(banKey).filter((w) => !allowed.includes(w))
+    const exemptions = [...new Set([...stringList(db, 'generic_allow').map(banKey), ...allowed])]
     kvSet(db, 'generic_auto', JSON.stringify(bans))
     kvSet(db, 'generic_allow', JSON.stringify(exemptions))
     for (const row of db.prepare("SELECT cid, head FROM candidates WHERE state='rejected' AND reject_reason='banned'").all() as Row[]) {
-      if (allowed.includes(normalizeHead(row.head as string))) {
+      if (allowed.includes(banKey(row.head as string))) {
         db.prepare("UPDATE candidates SET state='pending', rejected_at=NULL, reject_reason=NULL, updated_at=? WHERE cid=?")
           .run(nowIso(), row.cid)
       }
@@ -49,16 +49,16 @@ export function handleAllow(db: DatabaseSync, words: string[]): string[] {
 
 /** ban：精确归一化词头，跨 phrase/copy/skeleton/image 生效；不做子串或语义家族封禁。 */
 export function handleBan(db: DatabaseSync, words: string[]): string[] {
-  const banned = [...new Set(words.map(normalizeHead).filter(Boolean))]
+  const banned = [...new Set(words.map(banKey).filter(Boolean))]
   if (!banned.length) throw new MemeError('MEME_HEAD_INVALID', 'ban 至少需要一个非空词头', '传入要封禁的精确词头。')
   tx(db, () => {
-    const bans = [...new Set([...stringList(db, 'generic_auto').map(normalizeHead), ...banned])]
-    const exemptions = stringList(db, 'generic_allow').map(normalizeHead).filter((w) => !banned.includes(w))
+    const bans = [...new Set([...stringList(db, 'generic_auto').map(banKey), ...banned])]
+    const exemptions = stringList(db, 'generic_allow').map(banKey).filter((w) => !banned.includes(w))
     kvSet(db, 'generic_auto', JSON.stringify(bans))
     kvSet(db, 'generic_allow', JSON.stringify(exemptions))
     const ts = nowIso()
     for (const cand of candidates.allActive(db)) {
-      if (!banned.includes(normalizeHead(cand.head))) continue
+      if (!banned.includes(banKey(cand.head))) continue
       db.prepare("UPDATE candidates SET state='rejected', rejected_at=?, reject_reason='banned', updated_at=? WHERE cid=?")
         .run(ts, ts, cand.cid)
     }

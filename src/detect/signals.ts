@@ -23,7 +23,7 @@ import { type UsageSample } from '../models.ts'
 import * as extract from './extract.ts'
 import { burstLevel } from './burst.ts'
 import { hamming as imgHamming } from './imgphash.ts'
-import { normalizeHead } from './evidence.ts'
+import { banKey, isStopped, normalizeHead } from './evidence.ts'
 
 /** 语法虚词核心表（零梗义争议；泛用实词不入列——统计判别与语义标记负责）。 */
 export const GENERIC = new Set([
@@ -60,16 +60,20 @@ export interface SignalsResult {
   pruned_spam: number
 }
 
-/** 三级停用词：内置 GENERIC ∪ 配置 generic_extra ∪ kv generic_auto（--ban 沉淀）；kv generic_allow 为豁免表。 */
+/** 三级停用词：内置 GENERIC ∪ 配置 generic_extra ∪ kv generic_auto（meme ban 沉淀）；kv generic_allow 为豁免表。 */
 export function genericSet(db: DatabaseSync, cfg: ResolvedConfig): Set<string> {
   const s = new Set<string>()
   for (const w of GENERIC) s.add(normalizeHead(w))
   for (const w of cfg.genericExtra) s.add(normalizeHead(w))
   try {
-    for (const w of JSON.parse(kvGet(db, 'generic_auto', '[]') || '[]') as string[]) s.add(normalizeHead(w))
+    // 封禁值已是 banKey 规范形，逐字加入：再走 normalizeHead 会重新吞掉数字
+    for (const w of JSON.parse(kvGet(db, 'generic_auto', '[]') || '[]') as string[]) s.add(banKey(w))
   } catch { /* 坏数据忽略 */ }
   try {
-    for (const w of JSON.parse(kvGet(db, 'generic_allow', '[]') || '[]') as string[]) s.delete(normalizeHead(w))
+    for (const w of JSON.parse(kvGet(db, 'generic_allow', '[]') || '[]') as string[]) {
+      s.delete(banKey(w))
+      s.delete(normalizeHead(w))
+    }
   } catch { /* 坏数据忽略 */ }
   return s
 }
@@ -80,7 +84,10 @@ export function semanticGenericSet(db: DatabaseSync, cfg: ResolvedConfig): Set<s
   for (const w of GENERIC) s.add(normalizeHead(w))
   for (const w of cfg.genericExtra) s.add(normalizeHead(w))
   try {
-    for (const w of JSON.parse(kvGet(db, 'generic_allow', '[]') || '[]') as string[]) s.delete(normalizeHead(w))
+    for (const w of JSON.parse(kvGet(db, 'generic_allow', '[]') || '[]') as string[]) {
+      s.delete(banKey(w))
+      s.delete(normalizeHead(w))
+    }
   } catch { /* 坏数据忽略 */ }
   return s
 }
@@ -271,7 +278,7 @@ function reopenExisting(ctx: Ctx, corpus: extract.Corpus): void {
   const existingByHead = new Map(allActive(ctx.db).map((c) => [c.head, c] as const))
   for (const cu of corpus.units) {
     for (const ph of cu.gramSet) {
-      if (seenHeads.has(ph) || ctx.generic.has(normalizeHead(ph))) continue
+      if (seenHeads.has(ph) || isStopped(ctx.generic, ph)) continue
       const cand = existingByHead.get(ph)
       if (!cand || cand.channel !== 'phrase' || cand.last_round === ctx.roundId) continue
       upsertFromSignal(ctx.db, {
@@ -303,14 +310,14 @@ async function imageChannel(ctx: Ctx): Promise<void> {
     if (h) reps.push([r.head as string, h])
   }
   for (const im of newImgs) {
-    if (ctx.generic.has(normalizeHead(`img:${im.phash as string}`))) continue
+    if (isStopped(ctx.generic, `img:${im.phash as string}`)) continue
     const ph = im.phash as string
     let matchHead = reps.find(([, h]) => imgHamming(ph, h) <= IMG_HAMMING_MAX)?.[0]
     if (matchHead === undefined) {
       matchHead = `img:${ph}`
       reps.push([matchHead, ph])
     }
-    if (ctx.generic.has(normalizeHead(matchHead))) continue
+    if (isStopped(ctx.generic, matchHead)) continue
     const cand = upsertFromSignal(ctx.db, {
       head: matchHead, channel: 'image', kind_guess: 'word',
       usages: [{

@@ -26,7 +26,7 @@ import type { UsageSample } from '../models.ts'
 import { segmentTagged, segment } from '../tokenize.ts'
 import { keepToken, isContentTag } from './ngram.ts'
 import { PUNCT, RE_REPLY_PREFIX, RE_SUB } from './skel.ts'
-import { normText, normalizeHead } from './evidence.ts'
+import { isStopped, normText, normalizeHead } from './evidence.ts'
 
 /** 视频标题的证据权重（up 主刻意为之，一条玩梗标题 ≈ 5 条自然评论）。 */
 export const TITLE_WEIGHT = 5
@@ -335,7 +335,7 @@ export function extractFixed(
     // cnt≥2 的重复门槛保留，B站单视频行为不变
     const qqOnly = dv >= 1 && [...st.vids].every((v) => v < 0)
     if (dv < MIN_VIDEOS && !rescue && !qqOnly) continue
-    if (generic.has(normalizeHead(g))) continue
+    if (isStopped(generic, g)) continue
     if (useDfFilter && st.docs.size / n > MAX_DF_RATIO) continue
     const content = isContentTag(st.headTag)
     if (g.length >= 3) {
@@ -405,7 +405,7 @@ export function extractFixed(
   for (const [k, g] of groups) {
     if (g.vids.size < MIN_VIDEOS || g.wsum < MIN_OCCUR) continue
     if (isEtiquette(k)) continue
-    if (generic.has(normalizeHead(k))) continue // 封禁只匹配最终完整词头，不做子串或家族封禁
+    if (isStopped(generic, k)) continue // 封禁只匹配最终完整词头，不做子串或家族封禁
     const replyRatio = g.us.filter((u) => u.parent).length / g.us.length
     cands.push({
       head: k, cnt: g.wsum, dv: g.vids.size, aids: [...g.vids],
@@ -525,7 +525,7 @@ export function extractTemplates(corpus: Corpus, generic: Set<string> = new Set(
     if (dv < TPL_MIN_DV && !qqOnlyVids(cluster.ctxs.map((c) => corpus.units[c.ui].unit.aid))) continue
     const cntW = cluster.ctxs.reduce((s, c) => s + corpus.units[c.ui].unit.weight, 0)
     const head = finalizeHead(corpus, cluster)
-    if (!head || generic.has(normalizeHead(head))) continue
+    if (!head || isStopped(generic, head)) continue
     const usages = cluster.ctxs.slice(0, USAGE_CAP).map((c) => unitUsage(corpus.units[c.ui].unit))
     const aids = [...new Set(cluster.ctxs.map((c) => corpus.units[c.ui].unit.aid))]
     all.push({ head, cnt: cntW, dv, aids, usages })

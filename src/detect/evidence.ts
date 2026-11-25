@@ -62,6 +62,23 @@ export function normalizeHead(head: string): string {
   return trimmed.includes('<') ? trimmed.replace(/\s+/g, '') : normText(trimmed)
 }
 
+/**
+ * 封禁键：操作员封禁的作用域单位。与 normalizeHead 的唯一区别是**保留数字**——
+ * normalizeHead 走 normText，会把数字掩成槽位后丢弃（"绝区零2.0"→"绝区零"、
+ * "22娘"→"娘"），拿它当封禁键会静默扩大封禁范围，并让纯数字词头无法封禁。
+ */
+export function banKey(head: string): string {
+  const trimmed = head.trim().toLowerCase()
+  if (trimmed.startsWith('img:')) return trimmed
+  if (trimmed.includes('<')) return trimmed.replace(/\s+/g, '')
+  return [...trimmed].filter((ch) => !STRIP.has(ch)).join('')
+}
+
+/** 停用词判定：内置/配置词按 normalizeHead 入表，操作员封禁按 banKey 入表，两侧都查。 */
+export function isStopped(generic: Set<string>, head: string): boolean {
+  return generic.has(normalizeHead(head)) || generic.has(banKey(head))
+}
+
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** 完整形是否在用例中独立出现：固定表达精确相等/严格包含；模板按槽位形状另算。 */
