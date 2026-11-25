@@ -260,7 +260,7 @@ export async function runCheck(
   zones.read_only = true
   return {
     payload: zones,
-    human: '只读检查（未推进轮次）：\n' + present.renderZones(zones, present.pageFooter(page, zones.has_more, roundSize)),
+    human: '只读检查（未推进轮次）：\n' + present.renderZones(zones, present.pageFooter(page, zones.has_more, roundSize, false)),
   }
 }
 
@@ -332,6 +332,6 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
   zones.counts.fading = zones.fading.length
   return {
     payload: zones,
-    human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize)),
+    human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize, Boolean(opts.full))),
   }
 }

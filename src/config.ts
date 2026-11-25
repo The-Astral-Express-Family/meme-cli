@@ -154,7 +154,7 @@ const DEFAULT_LIFECYCLE: LifecycleConfig = {
   trigger_rounds: 2,
   // 次数线校准（2026-11-22 真实湖敏感度实测，操作员确认 5 偏低）：10/15 下
   // 队列 ~95 条可逐条裁决；已确认真梗全部次数 ≥7 且当时已 triggered，零损失。
-  // 纯次数分不开单容器话术热点（做出来 50 次/dv2 类）——热点治理走 --ban 沉淀。
+  // 纯次数分不开单容器话术热点（做出来 50 次/dv2 类）——热点治理走 meme ban 沉淀。
   trigger_videos: 10,
   trigger_videos_alt: 15,
   trigger_images: 8,
@@ -246,7 +246,7 @@ export function configTemplate(): string {
   }, null, 2) + '\n'
 }
 
-/** meme login 写出的登录态。 */
+/** meme auth login 写出的登录态。 */
 export interface BiliCredentials {
   sessdata: string
   bili_jct?: string
@@ -267,7 +267,7 @@ export function readCredentials(file: string): BiliCredentials | null {
   }
 }
 
-/** 登录态唯一来源：meme login 写出的凭证文件。 */
+/** 登录态唯一来源：meme auth login 写出的凭证文件。 */
 export function resolveSessdata(cfg: ResolvedConfig): string {
   return readCredentials(cfg.credentialsFile)?.sessdata ?? ''
 }

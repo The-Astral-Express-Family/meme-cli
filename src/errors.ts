@@ -50,7 +50,7 @@ export const notFound = (query: string, nearby: NearbyRef[]): MemeError => new M
 export const candidateNotFound = (cid: string): MemeError => new MemeError(
   'CANDIDATE_NOT_FOUND',
   `未找到候选：${cid}`,
-  '用 meme surf 翻看候选，或 meme search 核对是否已有同形词条。',
+  '确认 cid 拼写；候选可能已休眠或被收割——用 meme check 查看当前窗口过门条目（只读，不推进轮次；--focus 看完整证据），或 meme search 核对是否已有同形词条。',
 )
 
 export const dbForeign = (path: string): MemeError => new MemeError(

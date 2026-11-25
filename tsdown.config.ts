@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-// 两个独立入口：插件主体（harness 加载）与 meme login CLI（bin）。
+// 两个独立入口：插件主体（harness 加载）与 meme CLI（bin）。
 export default defineConfig([
   {
     entry: ['src/index.ts'],

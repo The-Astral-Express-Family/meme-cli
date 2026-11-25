@@ -83,7 +83,8 @@ const optUsage = (name: string, o: OptSpec): string => {
 
 /** 单命令详情帮助（meme <cmd> --help）。 */
 export function cmdUsage(spec: CmdSpec, version: string): string {
-  const lines = [`meme ${spec.name} —— ${spec.desc}`, '', `用法：meme ${spec.name} ${spec.args} [选项]`, '', '选项：']
+  const usage = `用法：meme ${spec.name}${spec.args ? ` ${spec.args}` : ''} [选项]`
+  const lines = [`meme ${spec.name} —— ${spec.desc}`, '', usage, '', '选项：']
   for (const [name, o] of Object.entries(spec.opts)) {
     lines.push(`${optUsage(name, o).padEnd(28)}${o.desc ?? ''}`)
   }
@@ -107,7 +108,7 @@ export function topUsage(specs: CmdSpec[], version: string): string {
   lines.push(
     '',
     '约定：stdout = 单行 JSON（结构化结果）；stderr = 人读文本；',
-    '      业务失败 exit 1 且 stdout 有 {"error":{"code","message",...}}；用法错误 exit 2。',
+    '      业务失败 exit 1 且 stdout 有 {"error":{"code","message",...}}；用法错误 exit 2（stdout 为帮助文本）。',
     '配置：~/.meme/config.json；登录态：meme auth login 写 ~/.meme/credentials.json，meme auth status 查状态。',
   )
   return lines.join('\n')

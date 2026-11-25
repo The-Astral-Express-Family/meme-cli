@@ -91,7 +91,7 @@ function loadEntry(p: Parsed): unknown {
 
 async function runLookup(p: Parsed, rt: Runtime): Promise<CmdOut> {
   const text = p._[0] ?? ''
-  if (!text) throw new UsageError('meme lookup 需要一个待识别文本参数（以 -- 结尾可传 "-开头" 的文本）')
+  if (!text) throw new UsageError('meme lookup 需要一个待识别文本参数（以 "-" 开头的文本用 -- 分隔，如 meme lookup -- "-开头"）')
   // 交互梗（tier 3）匹配对象是"最后一行"——待查文本必须作为会话末行参与匹配
   const lines = [...sv(p, 'ctx').filter(Boolean), text]
   const hits = await doLookup(
@@ -245,8 +245,11 @@ async function runEdit(p: Parsed, rt: Runtime): Promise<CmdOut> {
     actions.push('已升格 active')
   }
   if (b(p, 'kill')) {
+    const before = m.state
     lifecycle.kill(db, m, source, reason)
-    actions.push('已判死（加速降级 fading）')
+    actions.push(before === 'active'
+      ? '已判死（active → fading）'
+      : `判死未生效：当前 ${before}，只有 active 会加速降级到 fading`)
   }
   if (b(p, 'revive')) {
     lifecycle.revive(db, m, source, reason)
@@ -385,7 +388,11 @@ async function runIngestCmd(p: Parsed, rt: Runtime): Promise<CmdOut> {
   const file = s(p, 'file')
   let rawText: string
   if (file) {
-    rawText = readFileSync(file, 'utf8')
+    try {
+      rawText = readFileSync(file, 'utf8')
+    } catch (e) {
+      throw new MemeError('MEME_INGEST_INVALID', `消息文件不可读：${file}（${e instanceof Error ? e.message : e}）`, '确认路径存在且可读；也可把 JSON 数组从 stdin 管道进来。')
+    }
   } else {
     rawText = await new Promise<string>((resolve, reject) => {
       const chunks: Buffer[] = []
@@ -485,7 +492,7 @@ export const COMMANDS: Record<string, CmdDef> = {
   lookup: {
     name: 'lookup',
     args: '<text>',
-    desc: '识别一段文本里的 B站梗：命中返回玩梗卡（释义/用法/禁忌/攻击性），无命中是合法答案。交互梗需 --ctx 会话上文',
+    desc: '识别一段文本里的梗（不限来源）：命中返回玩梗卡（释义/用法/禁忌/攻击性），无命中是合法答案。交互梗需 --ctx 会话上文',
     opts: {
       ctx: { type: 'string', multiple: true, desc: '会话上文行（按时间序；待查文本作末行参与匹配）' },
       bare: { type: 'boolean', desc: '精简输出：只列命中不附卡片' },
@@ -589,7 +596,7 @@ export const COMMANDS: Record<string, CmdDef> = {
     opts: {
       'round-size': { type: 'number', desc: '每页呈现条数（默认取配置）；不给则一次返回全部过门条目，给了则按页切（第 0 页，后续页用 check --page）' },
       'no-fetch': { type: 'boolean', desc: '不联网获取，但仍执行一轮：认领群聊、更新证据、重算状态与收割' },
-      probe: { type: 'string', multiple: true, desc: '定向搜索探测词（需 meme login 登录态）' },
+      probe: { type: 'string', multiple: true, desc: '定向搜索探测词（需 meme auth login 登录态）' },
     },
     run: runSurfCmd,
   },

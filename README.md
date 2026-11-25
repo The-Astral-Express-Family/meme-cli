@@ -18,8 +18,8 @@
 
 | 面 | 入口 | 作用 |
 | --- | --- | --- |
-| **CLI**（操作面） | `bin` 的 `meme`（`lib/cli.js`） | 命令组见下表；stdout = 单行 JSON（agent 消费），stderr = 人读文本；业务失败 exit 1 且 stdout 仍有 `{"error":{"code","message","suggestion",...}}`，用法错误 exit 2 |
-| **shim**（插件面，prompt-only） | `lib/index.js`，`inject: ['skills', 'shellEnv', 'agents']` | ① `ctx.skills.register` 注册 meme 技能——**未激活形态只有技能目录里的一行**（81 字符 ≈ 57 tokens 常驻）；模型经 `skill` 工具按需展开全文（会话瞬态不常驻），**用户消息首行 `/meme` 也是确定性加载手势**；② shellEnv 注入 `DSH_MEME_NODE`（harness 进程的 node）与 `DSH_MEME_BIN`（cli.js 绝对路径）——harness 不给 agent shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道；③ QQ 群聊 bot（可选）：config.json 配了 `qq` 段才启动，未配置时行为与过去完全一致 |
+| **CLI**（操作面） | `bin` 的 `meme`（`lib/cli.js`） | 命令组见下表；stdout = 单行 JSON（agent 消费），stderr = 人读文本；业务失败 exit 1 且 stdout 仍有 `{"error":{"code","message","suggestion",...}}`，用法错误 exit 2（stdout 为帮助文本） |
+| **shim**（插件面，prompt-only） | `lib/index.js`，`inject: ['skills', 'shellEnv', 'agents']` | ① `ctx.skills.register` 注册 meme 技能——**未激活形态只有技能目录里的一行**（86 字符常驻）；模型经 `skill` 工具按需展开全文（会话瞬态不常驻），**用户消息首行 `/meme` 也是确定性加载手势**；② shellEnv 注入 `DSH_MEME_NODE`（harness 进程的 node）与 `DSH_MEME_BIN`（cli.js 绝对路径）——harness 不给 agent shell 加 PATH，绝对路径变量是插件喂给模型可执行入口的唯一正规通道；③ QQ 群聊 bot（可选）：config.json 填了 `qq.app_id`（或设环境变量 `QQBOT_APPID`）才启动，未配置时行为与过去完全一致 |
 
 agent 调用样板（先 `skill meme` 展开手册，之后自会使用）：
 
@@ -85,8 +85,8 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
   "credentials_file": "",               // 默认 ~/.meme/credentials.json
   "fetch": {
     "regions": [119],                   // 鬼畜区；可加 1=动画 4=游戏
-    "max_video_age_days": 10,
-    "probe_keywords": 3                 // 登录态下每轮搜索探测的热词数
+    "max_video_age_days": 0,            // 视频年龄闸门（天）；0 = 不设闸门
+    "probe_keywords": 0                 // 登录态下每轮搜索探测的热词数；0 = 关闭（--probe 定向词仍按次生效）
   },
   "backtest": {
     "min_hit": 0.7,                     // 留出集命中率门槛
@@ -102,7 +102,8 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 }
 ```
 
-没有凭证类字段：收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM。环境变量仅作临时覆盖：`MEME_DB`（库路径）。
+没有凭证类字段：收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM。配置项的环境变量覆盖只有 `MEME_DB`（库路径）；其余环境变量是开关而非配置项：`MEME_EMBED_OFF=1` 关闭向量层、`QQBOT_APPID`/`QQBOT_SECRET` 覆盖 QQ 凭据（见下两节）。
+上面是节选；`meme config init` 写出的模板才是全字段展开（含未列出的 `retrieval`、`lifecycle` 等段），字段与默认值以该模板为准。
 
 ## QQ 群聊 bot（内置，可选）
 

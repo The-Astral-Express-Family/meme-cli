@@ -119,7 +119,7 @@ function startServer(credentialsFile: string, port: number | undefined, finish: 
                 const diag = `poll Set-Cookie=[${Object.keys(cookies).join(', ') || '无'}]`
                   + ` crossDomain参数=${body.data?.url ? '有' : '无'}`
                   + ` crossDomain Set-Cookie=[${Object.keys(crossCookies).join(', ') || '无'}]`
-                console.error(`meme login: SESSDATA 未捕获（${diag}）——请重新扫码重试`)
+                console.error(`meme auth login: SESSDATA 未捕获（${diag}）——请重新扫码重试`)
                 finish({ ok: false, error: '登录确认成功但未捕获到 SESSDATA（见服务端日志），凭证未保存' })
                 sendJson(res, 200, { code: -1, message: '登录握手未捕获到凭证，请重新扫码重试' })
                 return
@@ -354,7 +354,7 @@ function openInBrowser(url: string): void {
   const cmd = process.platform === 'win32' ? `start "" "${url}"`
     : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`
   exec(cmd, (err) => {
-    if (err) console.error(`meme login: 无法自动打开浏览器（${err.message}），请手动访问上面的地址`)
+    if (err) console.error(`meme auth login: 无法自动打开浏览器（${err.message}），请手动访问上面的地址`)
   })
 }
 
@@ -376,7 +376,7 @@ const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>meme login · B站扫码登录</title>
+<title>meme auth login · B站扫码登录</title>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;

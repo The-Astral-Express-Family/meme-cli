@@ -109,7 +109,7 @@ const contributor: BashEnvContributor = {
 export function apply(ctx: Context): (() => void) | void {
   ctx.skills.register(SKILL)
   ctx.shellEnv.register(contributor)
-  // QQ 群聊 bot（可选）：config.json 配了 qq.app_id/app_secret 才启动；
+  // QQ 群聊 bot（可选）：config.json 填了 qq.app_id（或设环境变量 QQBOT_APPID）才启动；
   // 不配 = 纯 B站模式，行为与过去完全一致。启动/运行错误全兜日志，
   // 绝不影响 skill 与 shellEnv（bot 是附加能力，梗库操作面不依赖它）。
   let bot: QQBotHandle | null = null

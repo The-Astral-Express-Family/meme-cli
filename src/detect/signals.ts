@@ -78,7 +78,7 @@ export function genericSet(db: DatabaseSync, cfg: ResolvedConfig): Set<string> {
   return s
 }
 
-/** 语义客套云只使用内置/配置种子与操作员显式豁免；--ban 保持精确封禁，不做语义家族连带否决。 */
+/** 语义客套云只使用内置/配置种子与操作员显式豁免；meme ban 保持精确封禁，不做语义家族连带否决。 */
 export function semanticGenericSet(db: DatabaseSync, cfg: ResolvedConfig): Set<string> {
   const s = new Set<string>()
   for (const w of GENERIC) s.add(normalizeHead(w))

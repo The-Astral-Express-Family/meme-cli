@@ -149,9 +149,10 @@ export function renderZones(zones: Record<string, any>, pageLine: string): strin
   return out.join('\n')
 }
 
-export function pageFooter(page: number, hasMore: boolean, roundSize: number): string {
+export function pageFooter(page: number, hasMore: boolean, roundSize: number, full = false): string {
   const more = hasMore ? ` | check --page ${page + 1}` : ''
-  return `继续: check --focus <cid> 深入${more} | 默认结束本轮（每页 ${roundSize} 条）`
+  const tail = full ? '本次全量输出，未分页' : `每页 ${roundSize} 条`
+  return `继续: check --focus <cid> 深入${more} | 默认结束本轮（${tail}）`
 }
 
 export function renderFocus(

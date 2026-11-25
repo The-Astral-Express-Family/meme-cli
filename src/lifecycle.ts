@@ -12,6 +12,7 @@ import type { LifecycleConfig, ResolvedConfig } from './config.ts'
 import type { Candidate, Meme } from './models.ts'
 import { nowIso } from './models.ts'
 import type { Row } from './db.ts'
+import { MemeError } from './errors.ts'
 
 // ---------- 候选状态机 ----------
 
@@ -240,7 +241,9 @@ export function checkFade(db: DatabaseSync, cfg: LifecycleConfig): Array<{ id: s
 const round2 = (x: number) => Math.round(x * 100) / 100
 
 export function promote(db: DatabaseSync, meme: Meme, source: audit.AuditSource, reason = ''): Meme {
-  if (meme.state !== 'observing') throw new Error(`${meme.id} 状态为 ${meme.state}，不可升格`)
+  if (meme.state !== 'observing') {
+    throw new MemeError('MEME_STATE_INVALID', `${meme.id} 状态为 ${meme.state}，不可升格`, '只有 observing 词条能升格为 active；用 meme show <id> --level full 确认当前状态。')
+  }
   meme.state = 'active'
   audit.record(db, meme.id, 'state_change', source, { from: 'observing', to: 'active', reason: reason || '人工升格' })
   saveMeme(db, meme)
@@ -259,7 +262,7 @@ export function kill(db: DatabaseSync, meme: Meme, source: audit.AuditSource, re
 /** 复活：fading/tombstone → active，先给最小卡待确认。 */
 export function revive(db: DatabaseSync, meme: Meme, source: audit.AuditSource, reason = ''): Meme {
   if (meme.state !== 'fading' && meme.state !== 'tombstone') {
-    throw new Error(`${meme.id} 状态为 ${meme.state}，无需复活`)
+    throw new MemeError('MEME_STATE_INVALID', `${meme.id} 状态为 ${meme.state}，无需复活`, '只有 fading/tombstone 词条需要复活；active 词条已是完整卡。')
   }
   const old = meme.state
   meme.state = 'active'
