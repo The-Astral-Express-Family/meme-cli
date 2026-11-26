@@ -6,7 +6,28 @@ import { bumpRound, rollbackRound } from '../src/ledger.ts'
 import { runSurf } from '../src/surf/run.ts'
 import { makeCfg, openDb, seedComments, fakeFetchRound } from './helpers.ts'
 
-const today = (): string => new Date().toISOString().slice(0, 10)
+/** 与 src/models.ts 的 nowIso 同源：本地日期（代码里的归账日用本地日期，不能用 UTC）。 */
+const today = (): string => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** 汇总该 phrase 在全部日期上的计数：避免"脏行残留 0 值"与"跨日两行"干扰断言。 */
+const phraseTotal = (db: ReturnType<typeof openDb>, head: string): number =>
+  Number((db.prepare('SELECT COALESCE(SUM(cnt),0) AS c FROM phrase_daily WHERE phrase=?').get(head) as { c: number }).c)
+
+/** 轮询直到条件成立（避免固定 sleep 造成的时空耦合）。 */
+async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now()
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor 超时')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
+const count = (db: ReturnType<typeof openDb>, sql: string, ...args: unknown[]): number =>
+  Number((db.prepare(sql).get(...(args as never[])) as { c: number }).c)
 
 describe('原子 ID 与轮次台账', () => {
   it('nextId 事务外连续分配不重号（单条 upsert+RETURNING 原子分配）', () => {
@@ -45,9 +66,10 @@ describe('原子 ID 与轮次台账', () => {
 })
 
 describe('surf 单飞锁与半轮恢复', () => {
-  it('持锁中的 surf 拒绝并发第二轮（MEME_SURF_BUSY），结束后锁释放', async () => {
+  it('持锁中的 surf 拒绝并发第二轮（MEME_SURF_BUSY），且不得回滚正在运行的那一轮', async () => {
     const { cfg } = makeCfg()
     const db = openDb(cfg)
+    seedComments(db, ['没绷住', '没绷住哈哈', '这波没绷住'], [11, 11, 12], 0, 0, 91000)
     let releaseFetch!: () => void
     const gate = new Promise<void>((r) => { releaseFetch = r })
     const slowFetch = async () => {
@@ -55,11 +77,28 @@ describe('surf 单飞锁与半轮恢复', () => {
       return { new_videos: 0, new_comments: 0, degraded: false, reason: null, probed: [], hot_keywords: [] }
     }
     const first = runSurf(db, cfg, { fetch: slowFetch as never })
-    await new Promise((r) => setTimeout(r, 20)) // 让第一轮先拿到锁
+    // 等第一轮完成认领再开第二轮——这才是"另一轮正在运行"的真实时刻。
+    // 旧实现把 recoverStaleRounds 放在取锁之前，会把这一轮当崩溃残留回滚掉。
+    await waitFor(() => count(db, 'SELECT COUNT(*) AS c FROM lake_comments WHERE round_id>0') > 0)
+    const roundNo = (db.prepare('SELECT MAX(round_id) AS r FROM surf_runs').get() as { r: number }).r
+
     await expect(runSurf(db, cfg, { noFetch: true, fetch: fakeFetchRound() as never }))
       .rejects.toMatchObject({ code: 'MEME_SURF_BUSY' })
+
+    // 并发被拒后第一轮必须原封不动：仍在跑、评论没被退回未入轮、没多出轮次
+    expect(db.prepare('SELECT status FROM surf_runs WHERE round_id=?').get(roundNo)).toMatchObject({ status: 'running' })
+    expect(count(db, 'SELECT COUNT(*) AS c FROM lake_comments WHERE round_id=0')).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS c FROM surf_runs')).toBe(1)
+
     releaseFetch()
     await first
+    const payload = (await first).payload as { recovered_rounds: number[] }
+    expect(payload.recovered_rounds).toEqual([]) // 本轮不是残留，不该被恢复
+    expect(db.prepare('SELECT status FROM surf_runs WHERE round_id=?').get(roundNo)).toMatchObject({ status: 'completed' })
+    // 证据完整入账：评论仍属本轮，日聚合有本轮贡献
+    expect(count(db, 'SELECT COUNT(*) AS c FROM lake_comments WHERE round_id=?', roundNo)).toBe(3)
+    expect(count(db, "SELECT COALESCE(SUM(cnt),0) AS c FROM phrase_daily WHERE phrase='没绷住'")).toBeGreaterThan(0)
+
     expect(kvGet(db, 'surf_lock')).toBeNull()
     // 锁释放后可正常开新一轮
     await expect(runSurf(db, cfg, { noFetch: true, fetch: fakeFetchRound() as never })).resolves.toBeDefined()
@@ -81,7 +120,7 @@ describe('surf 单飞锁与半轮恢复', () => {
       }
       seedComments(target, ['没绷住', '没绷住哈哈', '这波没绷住'], [11, 11, 12], target === db ? 888 : 0, 0, 91000)
     }
-    const dirty = (db.prepare("SELECT cnt FROM phrase_daily WHERE phrase='没绷住'").get() as { cnt: number }).cnt
+    const dirty = phraseTotal(db, '没绷住')
     expect(dirty).toBe(99)
 
     const out = await runSurf(db, cfg, { noFetch: true, fetch: fakeFetchRound() as never })
@@ -90,8 +129,8 @@ describe('surf 单飞锁与半轮恢复', () => {
     expect(payload.recovered_rounds).toEqual([888])
     expect((db.prepare('SELECT status FROM surf_runs WHERE round_id=888').get() as { status: string }).status).toBe('failed')
     // 脏值被回滚后按新账本重新入账，与干净参照库完全一致
-    const fixed = (db.prepare("SELECT cnt FROM phrase_daily WHERE phrase='没绷住'").get() as { cnt: number }).cnt
-    const expected = (refDb.prepare("SELECT cnt FROM phrase_daily WHERE phrase='没绷住'").get() as { cnt: number }).cnt
+    const fixed = phraseTotal(db, '没绷住')
+    const expected = phraseTotal(refDb, '没绷住')
     expect(fixed).toBe(expected)
     // 崩溃轮的评论已并入新轮
     expect(payload.claimed).toBeGreaterThanOrEqual(3)

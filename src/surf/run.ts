@@ -59,7 +59,17 @@ function acquireSurfLock(db: DatabaseSync): void {
       /* 坏锁数据视为无锁 */
     }
   }
-  kvSet(db, 'surf_lock', JSON.stringify({ pid: process.pid, acquired_at: nowIso() }))
+  // 条件写入（compare-and-swap）：只在锁值仍是我们刚读到的那个时才覆盖。
+  // 纯读-判-写会让两个进程同时读到"无锁/已失效"然后都认为自己拿到了锁；
+  // 这里后写入者 changes=0，直接判 BUSY。
+  const mine = JSON.stringify({ pid: process.pid, acquired_at: nowIso() })
+  const res = db.prepare(
+    "INSERT INTO kv_meta(key,value) VALUES('surf_lock',?) "
+    + 'ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE kv_meta.value=?',
+  ).run(mine, raw ?? '')
+  if (Number(res.changes) === 0) {
+    throw new MemeError('MEME_SURF_BUSY', '另一轮 surf 刚刚取得锁', '稍后重试；同一库同时只允许一轮 surf。')
+  }
 }
 
 function releaseSurfLock(db: DatabaseSync): void {
@@ -73,6 +83,9 @@ function releaseSurfLock(db: DatabaseSync): void {
  * 半轮恢复：上一次进程中断留下的 status='running' 轮按台账精确回滚日聚合，
  * 评论/评论图片退回未入轮（round_id=0）交给下一轮重新认领，然后标记 failed。
  * 上一轮已进候选的证据不用回退——候选合流按 (text, rpid) 去重，重跑天然幂等。
+ *
+ * 调用前提：**必须已持有 surf 锁**。持锁即证明没有其他存活轮次在写，
+ * 此时所有 running 轮都是上一个死进程留下的；无锁调用会把正在运行的轮次当残留拆掉。
  */
 function recoverStaleRounds(db: DatabaseSync): number[] {
   const stale = db.prepare("SELECT round_id FROM surf_runs WHERE status='running' ORDER BY round_id").all() as Row[]
@@ -341,12 +354,15 @@ export interface SurfOpts {
 
 export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfOpts = {}): Promise<{ payload: Record<string, unknown>; human: string }> {
   const roundSize = opts.roundSize ?? cfg.retrieval.round_size
-  // ---- 半轮恢复 + 单飞锁 ----
-  const recovered = recoverStaleRounds(db)
+  // ---- 单飞锁必须最先拿：恢复会回滚 status='running' 的轮次，若在锁前执行，
+  // 并发进程会把另一条正在运行的轮次当成崩溃残留拆掉（删台账、退回已认领评论），
+  // 然后才因锁冲突退出——第一轮静默丢证据。只有持锁者才有资格判定谁是残留。----
   acquireSurfLock(db)
-  const run = db.prepare("INSERT INTO surf_runs(started_at, fetched, status) VALUES(?, 0, 'running')").run(nowIso())
-  const roundId = Number(run.lastInsertRowid)
+  let roundId = 0
   try {
+    const recovered = recoverStaleRounds(db)
+    const run = db.prepare("INSERT INTO surf_runs(started_at, fetched, status) VALUES(?, 0, 'running')").run(nowIso())
+    roundId = Number(run.lastInsertRowid)
     // 群聊消息认领：bot 桥接写入的 round_id=0 行并入本轮，与 B站采集同批计算。
     // 两条 UPDATE 事务化：认领了一半被打断时整体回退，避免视频丢轮次归属。
     const claimed = tx(db, () => claimPendingIngest(db, roundId))
@@ -406,15 +422,18 @@ export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfO
       human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize, Boolean(opts.full))),
     }
   } catch (e) {
-    // 半轮失败：按台账回滚本轮日聚合，评论留待下一轮恢复认领
-    try {
-      tx(db, () => {
-        rollbackRound(db, roundId)
-        db.prepare('UPDATE lake_comments SET round_id=0 WHERE round_id=?').run(roundId)
-        db.prepare('UPDATE lake_comment_images SET round_id=0 WHERE round_id=?').run(roundId)
-        db.prepare("UPDATE surf_runs SET status='failed', finished_at=? WHERE round_id=?").run(nowIso(), roundId)
-      })
-    } catch { /* 回滚失败也要抛出原始错误 */ }
+    // 半轮失败：按台账回滚本轮日聚合，评论留待下一轮恢复认领。
+    // roundId=0 表示还没开到本轮（锁竞争/恢复阶段就失败了），此时没有可回滚的状态。
+    if (roundId > 0) {
+      try {
+        tx(db, () => {
+          rollbackRound(db, roundId)
+          db.prepare('UPDATE lake_comments SET round_id=0 WHERE round_id=?').run(roundId)
+          db.prepare('UPDATE lake_comment_images SET round_id=0 WHERE round_id=?').run(roundId)
+          db.prepare("UPDATE surf_runs SET status='failed', finished_at=? WHERE round_id=?").run(nowIso(), roundId)
+        })
+      } catch { /* 回滚失败也要抛出原始错误 */ }
+    }
     throw e
   } finally {
     releaseSurfLock(db)
