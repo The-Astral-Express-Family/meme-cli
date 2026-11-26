@@ -6,8 +6,18 @@ __pycache__/
 dist/
 lib/
 *.db
+*.db-wal
+*.db-shm
+*.db.bak*
 *.sqlite
 *.sqlite3
 .env
+.env.*
 probe.ts
 .zcode/
+# benchmark 运行产物：模型输出与逐题大报告按需生成，不默认入库
+benchmarks/**/outputs/
+benchmarks/**/report.json
+benchmarks/**/judge-prompt*
+credentials*.json
+tmp-*.md
