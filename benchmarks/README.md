@@ -2,10 +2,16 @@
 
 这里保存真实候选、人工金标与模型输出的离线评估数据。金标只用于评估，不进入运行时。
 
-两套评分器，评的不是同一件事：
+## v5 策展题（`curator-v1`）——当前主基准，待实现
 
-- **candidate-judgment**：评 LLM 的语义判断——候选是不是梗、family/canonical 是什么。当前数据集 `candidate-judgment-v4`（72 题）。
-- **oj-lookup**：评系统行为——给定词条/matcher 与输入文本，lookup 是否正确触发（TP/TN/FP/FN）。见 `oj-lookup-v1/`。
+设计契约见 [`docs/benchmark-v5-curator.md`](../docs/benchmark-v5-curator.md)。一句话：**被测 agent 拿到 72 条候选，自己用 `meme add`/`meme ban` 建库，裁判再用隐藏查询集跑 `meme lookup` 记 TP/TN/FP/FN**。
+
+红线：主分只能来自库的行为，不能来自 agent 的文字答案；查询集必须建立在 72 条的真实家族上，不得用无关 fixture。
+
+## 现有两套遗产（v5 之前，评的是"判断"，不是"操作"）
+
+- **candidate-judgment**：评 LLM 的语义判断——候选是不是梗、family/canonical 是什么。数据集 `candidate-judgment-v4`（72 题）；v5 复用其候选与金标。
+- **oj-lookup**：评给定词条/matcher 的 lookup 行为（TP/TN/FP/FN）。其 26 条虚构家族与 72 条零交集，**仅作 matcher 单元行为参考，不进 v5 主分**。
 
 ## 原则
 
