@@ -19,7 +19,12 @@ import { startQQBot, type QQBotHandle } from './qq/bot.ts'
 export const name = 'dsh-meme'
 export const inject = ['skills', 'shellEnv', 'agents']
 
-const MANUAL = `# meme —— 梗百科（CLI）
+/**
+ * 技能手册全文。同时是 benchmark prompt 的 §2 来源（scripts/bench-prompt.ts 引用）：
+ * 改这里会改变候选判定基准的题目面——示例不能用 benchmarks/ 金标里的梗
+ * （泄题），新增示例前先对照 labels.jsonl。
+ */
+export const MANUAL = `# meme —— 梗百科（CLI）
 
 一句话：\`meme lookup\` 理解别人在玩什么梗，\`meme add\` 收录新梗，\`meme surf\` 策展发现，\`meme search\` 模糊回忆。
 梗库不限来源：群聊、直播、任何文本里的梗都能 lookup 与收录；surf 只是 B站采集端。
@@ -54,7 +59,7 @@ const MANUAL = `# meme —— 梗百科（CLI）
 - MEME_BACKTEST_FAIL 是修订反馈不是故障：按 error 附带的漏报/误报样例改 matcher 再交；确要跳过加 --force
 - 触发条件每轮对醒着的 pending/triggered 重算：达标 → triggered，不再达标 → pending（返回 demoted）。triggered 不粘住，没有永久待裁决队列；阈值附近抖动先直接呈现，靠回放观察
 - 最小证据：pending 至少 2 条有效用例，skeleton 至少 3 条；独立成评只认归一化文本等于或严格包含候选完整形，模板按槽位形状另算
-- 家族收口：同一梗的多形态（没绷住/绷住/绷了）只建一个 entry，用 aliases 收变体；add/iterate 成功后自动收口显式 cid 及 head 精确等于 canonical name/aliases 的所有 active 候选（跨通道）
+- 家族收口：同一梗的多形态（蚌埠住了/蚌住了）只建一个 entry，用 aliases 收变体；add/iterate 成功后自动收口显式 cid 及 head 精确等于 canonical name/aliases 的所有 active 候选（跨通道）
 - aliases 默认只做元数据、名字解析、重名守卫与家族收口；只有 --match-aliases 才把非槽位 aliases 合并进 lex matcher。交互梗 aliases 永不增加可绕过上下文的词表命中
 - ban 是精确归一化词头，跨 phrase/copy/skeleton/image 生效；不做子串或语义家族封禁。ban “启动”不会封 “<X>启动” 或 “启动器”
 - check 只读：不写 surf_round、不认领 QQ、不收割、不写 kv、不改候选状态。surf --no-fetch 只是不联网，仍会推进一轮并执行认领、证据更新、状态重算与收割

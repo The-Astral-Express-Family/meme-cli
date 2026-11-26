@@ -125,6 +125,8 @@ export interface ModelScore {
   f1: number
   accuracy: number
   coverage: number
+  /** 候选级三分类准确率（meme/not-meme/conditional 逐字对比金标；abstain 不计入分母）。 */
+  candidate_accuracy: number
   conditional_correct: number
   conditional_total: number
   family_tp: number
@@ -152,6 +154,28 @@ const sha256 = (buf: Buffer | string): string => createHash('sha256').update(buf
 const norm = (s: string): string => s.trim().toLowerCase()
 const safeDiv = (a: number, b: number): number => b ? a / b : 0
 const f1 = (precision: number, recall: number): number => safeDiv(2 * precision * recall, precision + recall)
+
+/**
+ * 金标泄漏扫描：检查 prompt 的说明部分（§0–§3）是否出现金标家族/完整形。
+ * 纯 ASCII 且 ≤2 字符的形式（如 nb）按词边界匹配，否则按子串匹配——
+ * "Kleinberg" 里恰好有 nb 这类误报必须排除。返回泄漏形式列表（去重）。
+ */
+export function findGoldLeaks(instructionText: string, labels: Array<{ accepted_canonical_forms: string[] }>): string[] {
+  const leaks = new Set<string>()
+  for (const label of labels) {
+    for (const form of label.accepted_canonical_forms) {
+      const f = form.trim()
+      if (!f || f.includes('<') || f.length < 2) continue
+      if (/^[\x20-\x7e]{1,2}$/.test(f)) {
+        const re = new RegExp(`(?<![\\p{L}\\p{N}])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu')
+        if (re.test(instructionText)) leaks.add(f)
+      } else if (instructionText.includes(f)) {
+        leaks.add(f)
+      }
+    }
+  }
+  return [...leaks]
+}
 
 function readJsonl<T>(file: string, schema: z.ZodType<T>): T[] {
   const text = readFileSync(file, 'utf8').trim()
@@ -224,10 +248,11 @@ export function validateOutput(dataset: Dataset, outputs: BenchmarkOutput[]): st
   return errors
 }
 
-function resolvedPrediction(label: BenchmarkLabel, verdict: BenchmarkVerdict): boolean | null {
+function resolvedPrediction(verdict: BenchmarkVerdict): boolean | null {
   if (verdict === 'abstain') return null
-  // conditional = 候选词头不能无条件立梗，候选级按否定计；条件题另有 conditional_* 指标。
-  return verdict === 'meme'
+  // conditional = 词头不能无条件立梗，但判定的完整形是梗 → resolved 层记肯定；
+  // "候选词头是否站得住"由 candidate_* 三分类指标单独衡量，不再让 conditional 恒错。
+  return verdict !== 'not-meme'
 }
 
 export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOutput[]): ModelScore {
@@ -237,17 +262,21 @@ export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOu
   const outById = new Map(outputs.map((o) => [o.case_id, o]))
   const cases: CaseScore[] = []
   let tp = 0, fp = 0, fn = 0, tn = 0, abstained = 0
+  let candidateCorrect = 0, candidateDecided = 0
   let conditionalCorrect = 0, conditionalTotal = 0
   let familyTp = 0, familyFp = 0, familyFn = 0
   let canonicalCorrect = 0, canonicalTotal = 0, evidenceInvalid = 0
   for (const c of dataset.cases) {
     const l = labelById.get(c.case_id)!
     const o = outById.get(c.case_id)!
-    const pred = resolvedPrediction(l, o.verdict)
-    let candidateCorrect: boolean | null = null
+    const pred = resolvedPrediction(o.verdict)
+    let candCorrect: boolean | null = null
     if (pred === null) abstained++
     else {
-      candidateCorrect = pred === (l.resolved_verdict === 'meme')
+      // 候选级三分类：直接对比 gold 的 meme/not-meme/conditional
+      candCorrect = o.verdict === l.candidate_verdict
+      candidateDecided++
+      if (candCorrect) candidateCorrect++
       if (pred && l.resolved_verdict === 'meme') tp++
       else if (pred && l.resolved_verdict === 'not-meme') fp++
       else if (!pred && l.resolved_verdict === 'meme') fn++
@@ -255,7 +284,7 @@ export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOu
     }
     if (l.candidate_verdict === 'conditional') {
       conditionalTotal++
-      if (candidateCorrect) conditionalCorrect++
+      if (o.verdict === 'conditional') conditionalCorrect++
     }
     let canonicalHit: boolean | null = null
     if (l.canonical_head) {
@@ -277,7 +306,7 @@ export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOu
     cases.push({
       case_id: c.case_id, source_cid: c.source_cid, head: c.head,
       gold_candidate_verdict: l.candidate_verdict, gold_resolved_verdict: l.resolved_verdict,
-      output_verdict: o.verdict, candidate_correct: candidateCorrect,
+      output_verdict: o.verdict, candidate_correct: candCorrect,
       gold_family: l.family_id, output_family: o.family_id, family_correct: familyCorrect,
       gold_canonical: l.canonical_head, output_canonical: o.canonical_head,
       canonical_correct: canonicalHit, evidence_valid: valid, rationale: o.rationale,
@@ -292,6 +321,7 @@ export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOu
     model, total: dataset.cases.length, decided, abstained, invalid: errors.length,
     tp, fp, fn, tn, precision, recall, f1: f1(precision, recall),
     accuracy: safeDiv(tp + tn, decided), coverage: safeDiv(decided, dataset.cases.length),
+    candidate_accuracy: safeDiv(candidateCorrect, candidateDecided),
     conditional_correct: conditionalCorrect, conditional_total: conditionalTotal,
     family_tp: familyTp, family_fp: familyFp, family_fn: familyFn,
     family_precision: familyPrecision, family_recall: familyRecall, family_f1: f1(familyPrecision, familyRecall),
@@ -351,11 +381,11 @@ export function renderMarkdown(report: BenchmarkReport): string {
   }
   lines.push(
     '',
-    '| 模型 | 候选准确率 | Precision | Recall | F1 | 覆盖率 | 存疑 | 家族 F1 | 完整形准确率 |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| 模型 | 候选判定准确率 | Resolved 准确率 | Precision | Recall | F1 | 覆盖率 | 存疑 | conditional 命中 | 完整形准确率 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   )
   for (const m of report.models) {
-    lines.push(`| ${m.model} | ${pct(m.accuracy)} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${pct(m.coverage)} | ${m.abstained} | ${pct(m.family_f1)} | ${pct(m.canonical_accuracy)} |`)
+    lines.push(`| ${m.model} | ${pct(m.candidate_accuracy)} | ${pct(m.accuracy)} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${pct(m.coverage)} | ${m.abstained} | ${m.conditional_correct}/${m.conditional_total} | ${pct(m.canonical_accuracy)} |`)
   }
   lines.push('', '## 模型两两一致率', '', '| 模型 A | 模型 B | 一致率 |', '| --- | --- | --- |')
   for (const a of report.agreement) lines.push(`| ${a.a} | ${a.b} | ${pct(a.rate)} |`)

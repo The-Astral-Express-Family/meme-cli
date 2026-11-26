@@ -38,7 +38,7 @@
     "new_comments": 10127
   },
   "hashes": {
-    "prompt.md": "72ba038dd871dc4211015e57c1fcd8131e31c4642b05cda75eee15fec73a1d7d",
+    "prompt.md": "8c48f80ba1fba89abb525922cd2657aa97aa81f757fd797a6eb4657f0bdd46ae",
     "cases.jsonl": "36f976574b95a3caaaad0488d48fa89db2ca2304bc0971433e0e26a2b6fb629a",
     "labels.jsonl": "2cd4cc4c107cd5264260a6453ece2a5f64070fa70599114469d543429b144577"
   },
@@ -55,7 +55,8 @@
   },
   "notes": [
     "v4 integrates the original v3 48 cases with 24 newly screened cases; the v3 directory was removed after operator confirmation.",
-    "No model outputs are bundled with v4; report is explicitly empty until fresh runs are added.",
+    "HungerG blind output is bundled under outputs/HungerG; reports were generated only after the 72 answers were sealed.",
     "Text files are LF-normalized for manifest hashes on every platform."
-  ]
+  ],
+  "prompt_revision": "2026-11-26-sanitized：§0–§3 去除与金标同源的示例（爆/神了/没绷住家族等），修复盲评泄题"
 }
