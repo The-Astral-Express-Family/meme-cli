@@ -40,7 +40,7 @@
   "hashes": {
     "prompt.md": "8c48f80ba1fba89abb525922cd2657aa97aa81f757fd797a6eb4657f0bdd46ae",
     "cases.jsonl": "36f976574b95a3caaaad0488d48fa89db2ca2304bc0971433e0e26a2b6fb629a",
-    "labels.jsonl": "2cd4cc4c107cd5264260a6453ece2a5f64070fa70599114469d543429b144577"
+    "labels.jsonl": "ac98ea6b8c2e52f3b2e32829b2ab2c48d8736266338694483d49a9e1c3f88802"
   },
   "labels_are_evaluation_only": true,
   "operator_review": {
@@ -50,7 +50,8 @@
       "保留原 v3 的 48 条案例与金标并入 v4，新增 24 条 2026-11-26 surf round 23-25 候选",
       "新增题覆盖 phrase/skeleton/copy 三通道；image 因文本 benchmark 无法看图，暂不纳入",
       "按操作员最终确认移除争议项；每日大学习拆为 <X>大学习 模板家族与 325 事件梗两题",
-      "操作员已确认删除 v3 旧目录，v4 成为唯一当前数据集"
+      "操作员已确认删除 v3 旧目录，v4 成为唯一当前数据集",
+      "2026-11-26 真值修正：cjv1-024 的完整句“没有吧，是你太性感了”是“感性→性感”口误双关梗，resolved_verdict 由 not-meme 改为 meme 并补 canonical/family；候选词头“你太”仍按截断片段记 not-meme"
     ]
   },
   "notes": [
@@ -58,5 +59,6 @@
     "HungerG blind output is bundled under outputs/HungerG; reports were generated only after the 72 answers were sealed.",
     "Text files are LF-normalized for manifest hashes on every platform."
   ],
-  "prompt_revision": "2026-11-26-sanitized：§0–§3 去除与金标同源的示例（爆/神了/没绷住家族等），修复盲评泄题"
+  "prompt_revision": "2026-11-26-sanitized：§0–§3 去除与金标同源的示例（爆/神了/没绷住家族等），修复盲评泄题",
+  "labels_revision": "2026-11-26-r2：修正 cjv1-024（感性→性感双关，resolved 改 meme）。此前的模型分数按 r1 金标计算，与本版不可逐题对齐。"
 }

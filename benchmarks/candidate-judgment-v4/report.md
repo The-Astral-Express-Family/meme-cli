@@ -4,8 +4,8 @@
 
 | 模型 | 候选判定准确率 | Resolved 准确率 | Precision | Recall | F1 | 覆盖率 | 存疑 | conditional 命中 | 完整形准确率 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| HungerG | 75.7% | 78.6% | 100.0% | 50.0% | 66.7% | 97.2% | 2 | 1/4 | 42.5% |
-| GLM-5.3 | 68.1% | 75.0% | 76.9% | 62.5% | 69.0% | 100.0% | 0 | 3/4 | 30.0% |
+| HungerG | 75.7% | 77.1% | 100.0% | 48.4% | 65.2% | 97.2% | 2 | 1/4 | 43.9% |
+| GLM-5.3 | 68.1% | 76.4% | 80.8% | 63.6% | 71.2% | 100.0% | 0 | 3/4 | 31.7% |
 
 ## 模型两两一致率
 
@@ -40,7 +40,7 @@
 | cjv1-021 | 参与 | not-meme | — | not-meme | not-meme |
 | cjv1-022 | 赢 | not-meme | — | not-meme | not-meme |
 | cjv1-023 | 艺术 | not-meme | — | not-meme | not-meme |
-| cjv1-024 | 你太 | not-meme | — | not-meme → 是你太性感了 | meme → 没有吧，你太性感了 |
+| cjv1-024 | 你太 | not-meme | 没有吧，是你太性感了 | not-meme → 是你太性感了 | meme → 没有吧，你太性感了 |
 | cjv3-025 | 真的可以 | not-meme | <X>你做人真的可以 | not-meme → bin哥你做人真的可以 | conditional → 陈泽斌你真的可以 |
 | cjv3-026 | is | not-meme | <X>be like | not-meme → 我的英语水平 is be like | meme → is be like |
 | cjv3-027 | 非凡 | conditional | 早上好，梁非凡 | not-meme → 早上好，梁非凡 | conditional → 梁非凡 |
