@@ -38,21 +38,23 @@
     "new_comments": 10127
   },
   "hashes": {
-    "prompt.md": "9447f1793cb596abc5de86949b9b033d47599f60b5c9b7ec3cb2dae4b8007074",
-    "cases.jsonl": "9d9c2a3d2eee3bdbcc16058adc1b20baa0b5b174496d7af9186b6b77bfbeacd3",
-    "labels.jsonl": "f044c71b548f577ff884e27b49ba1cfe874b75a4750f82028ec490fd0b8202c2"
+    "prompt.md": "72ba038dd871dc4211015e57c1fcd8131e31c4642b05cda75eee15fec73a1d7d",
+    "cases.jsonl": "36f976574b95a3caaaad0488d48fa89db2ca2304bc0971433e0e26a2b6fb629a",
+    "labels.jsonl": "2cd4cc4c107cd5264260a6453ece2a5f64070fa70599114469d543429b144577"
   },
   "labels_are_evaluation_only": true,
   "operator_review": {
     "reviewed_at": "2026-11-26",
     "status": "confirmed",
     "changes": [
-      "保留 v3 的 48 条案例与金标，新增 24 条 2026-11-26 surf round 23-25 候选",
-      "新增题覆盖 phrase/skeleton/copy 三通道；image 因文本 benchmark 无法看图，暂不纳入"
+      "保留原 v3 的 48 条案例与金标并入 v4，新增 24 条 2026-11-26 surf round 23-25 候选",
+      "新增题覆盖 phrase/skeleton/copy 三通道；image 因文本 benchmark 无法看图，暂不纳入",
+      "按操作员最终确认移除争议项；每日大学习拆为 <X>大学习 模板家族与 325 事件梗两题",
+      "操作员已确认删除 v3 旧目录，v4 成为唯一当前数据集"
     ]
   },
   "notes": [
-    "v4 integrates the v3 48 cases with 24 newly screened cases; v3 remains unchanged.",
+    "v4 integrates the original v3 48 cases with 24 newly screened cases; the v3 directory was removed after operator confirmation.",
     "No model outputs are bundled with v4; report is explicitly empty until fresh runs are added.",
     "Text files are LF-normalized for manifest hashes on every platform."
   ]
