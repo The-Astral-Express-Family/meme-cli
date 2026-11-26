@@ -354,17 +354,22 @@ export async function runAddEntry(
   })
 
   const vectors = await embedExamples(meme, cfg)
-  saveMeme(db, meme, vectors)
-  const closed = settleCandidates(db, meme, cands)
-  audit.record(db, meme.id, 'induct', 'add', {
-    evidence_heads: cands.map((c) => c.head),
-    evidence_head: cands[0]?.head ?? (opts.text ?? '').slice(0, 20),
-    entry_notes: out.notes,
-    backtest: bt ? backtestToDict(bt) : null,
-    forced_vector_only: degraded,
-    force_used: Boolean(opts.force),
-    closed_cids: closed.cids,
-    closed_heads: closed.heads,
+  // 词条+FTS+向量、候选收口、审计日志整体提交：中断不会留下"词条已入库但
+  // 候选没收口/审计缺失"的半步状态（saveMeme 拆开写时曾有这个窗口）
+  const closed = tx(db, () => {
+    saveMeme(db, meme, vectors)
+    const closed = settleCandidates(db, meme, cands)
+    audit.record(db, meme.id, 'induct', 'add', {
+      evidence_heads: cands.map((c) => c.head),
+      evidence_head: cands[0]?.head ?? (opts.text ?? '').slice(0, 20),
+      entry_notes: out.notes,
+      backtest: bt ? backtestToDict(bt) : null,
+      forced_vector_only: degraded,
+      force_used: Boolean(opts.force),
+      closed_cids: closed.cids,
+      closed_heads: closed.heads,
+    })
+    return closed
   })
   return { meme, backtest: bt, matcher_degraded: degraded, warnings }
 }
@@ -438,21 +443,23 @@ export async function runIterate(
     }].slice(-8)
   }
   const vectors = await embedExamples(meme2, cfg)
-  saveMeme(db, meme2, vectors)
-  const closed = settleCandidates(db, meme2, cands)
-
-  audit.record(db, meme2.id, 'iterate', 'edit', {
-    evidence_usages: ev.usages.length,
-    independent_evidence_usages: ev.independent_usages,
-    backtest: bt ? backtestToDict(bt) : null,
-    old_gist: meme.card.gist,
-    new_terms: [meme2.name, ...meme2.aliases].filter((t) => !oldTerms.has(t)).sort(),
-    warnings,
-    forced_vector_only: degraded,
-    force_used: Boolean(opts.force),
-    matcher_evidence_forced: matcherEvidenceForced,
-    closed_cids: closed.cids,
-    closed_heads: closed.heads,
+  const closed = tx(db, () => {
+    saveMeme(db, meme2, vectors)
+    const closed = settleCandidates(db, meme2, cands)
+    audit.record(db, meme2.id, 'iterate', 'edit', {
+      evidence_usages: ev.usages.length,
+      independent_evidence_usages: ev.independent_usages,
+      backtest: bt ? backtestToDict(bt) : null,
+      old_gist: meme.card.gist,
+      new_terms: [meme2.name, ...meme2.aliases].filter((t) => !oldTerms.has(t)).sort(),
+      warnings,
+      forced_vector_only: degraded,
+      force_used: Boolean(opts.force),
+      matcher_evidence_forced: matcherEvidenceForced,
+      closed_cids: closed.cids,
+      closed_heads: closed.heads,
+    })
+    return closed
   })
   return { meme: meme2, backtest: bt, matcher_degraded: degraded, warnings }
 }

@@ -13,11 +13,12 @@
  * 复原）、meme_hit_daily（词条命中日聚合，与候选无关）、
  * kv（generic_auto 封禁表、轮次序号）。
  */
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { connect } from '../src/db.ts'
+import { backupDatabase } from '../src/backup.ts'
 import { resolveConfig } from '../src/config.ts'
 import { updateSignals } from '../src/detect/signals.ts'
 import { transitionCandidates, reapCandidates } from '../src/lifecycle.ts'
@@ -34,10 +35,14 @@ const apply = has('--apply')
 let target = dbArg
 if (!apply) {
   target = join(mkdtempSync(join(tmpdir(), 'meme-rebuild-')), 'rebuild.db')
-  copyFileSync(dbArg, target)
+  // VACUUM INTO 一致性快照：WAL 下手工 copy 主库会丢未合并提交
+  backupDatabase(dbArg, target, connect)
   console.log(`[预览模式] 重建在临时副本上进行：${target}`)
 } else {
-  console.log(`[就地重建] ${dbArg}（建议先手动备份该文件）`)
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const bak = `${dbArg}.bak-pre-rebuild-${stamp}`
+  backupDatabase(dbArg, bak, connect)
+  console.log(`[就地重建] ${dbArg}（已先做一致性备份：${bak}）`)
 }
 
 const db = connect(target)
@@ -52,10 +57,11 @@ const curated = (raw.prepare(
 )
 console.log(`curation 复原清单：${curated.length} 条（${curated.map((c) => c.head).join(', ')}）`)
 
-// 2) 清空派生状态（保留原始湖 + meme_hit_daily + kv）
-for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily']) {
+// 2) 清空派生状态（保留原始湖 + meme_hit_daily + kv；轮次台账一并清）
+for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily', 'round_bumps']) {
   raw.exec(`DELETE FROM ${t}`)
 }
+raw.exec("DELETE FROM kv_meta WHERE key='signals_done_round'")
 
 // 3) 按湖内轮次重放（与 replay.ts 同序：updateSignals → transitionCandidates）
 const cfg = resolveConfig()

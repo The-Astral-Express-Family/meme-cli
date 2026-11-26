@@ -28,7 +28,20 @@ CREATE TABLE IF NOT EXISTS surf_runs (
   new_videos  INTEGER NOT NULL DEFAULT 0,
   new_comments INTEGER NOT NULL DEFAULT 0,
   degraded    INTEGER NOT NULL DEFAULT 0,
-  note        TEXT
+  note        TEXT,
+  status      TEXT NOT NULL DEFAULT 'completed',
+  finished_at TEXT
+);
+
+-- 每轮日聚合记账（绝对值台账）：signals 同轮重跑按差量入账、崩溃轮按台账精确回滚，
+-- 杜绝"半轮 surf 重跑把 phrase_daily/meme_hit_daily 记两次"。
+CREATE TABLE IF NOT EXISTS round_bumps (
+  round_id INTEGER NOT NULL,
+  bucket   TEXT NOT NULL,
+  key      TEXT NOT NULL,
+  cnt      INTEGER NOT NULL DEFAULT 0,
+  videos   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (round_id, bucket, key)
 );
 
 CREATE TABLE IF NOT EXISTS lake_videos (
@@ -184,7 +197,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 `
 
-/** 打开（必要时创建）数据库并执行守卫；无迁移路径，版本不符一律拒收。 */
+/** 打开（必要时创建）数据库并执行守卫；旧库只做最小版本迁移，异构库一律拒收。 */
 export function connect(dbPath: string): DatabaseSync {
   const fresh = !exists(dbPath)
   if (fresh) mkdirSync(dirname(dbPath), { recursive: true })
@@ -200,23 +213,50 @@ export function connect(dbPath: string): DatabaseSync {
   }
   const app = (db.prepare('PRAGMA application_id').get() as Row).application_id as number
   const ver = (db.prepare('PRAGMA user_version').get() as Row).user_version as number
-  if (app !== APP_ID || ver !== SCHEMA_VERSION) {
+  if (app !== APP_ID) {
     db.close()
     throw dbForeign(`${dbPath}（application_id=${app} user_version=${ver}）`)
   }
+  if (ver > SCHEMA_VERSION) {
+    db.close()
+    throw dbForeign(`${dbPath} schema 版本 ${ver} 高于当前代码的 ${SCHEMA_VERSION}，请先升级程序`)
+  }
+  if (ver < SCHEMA_VERSION) migrate(db, ver)
   return db
 }
 
-/** 批量写事务：失败整体回滚（node:sqlite 默认逐句自动提交）。 */
+/** 最小版本迁移：只做加列/建表这类向前兼容的增量，改字段语义时新开版本。 */
+function migrate(db: DatabaseSync, ver: number): void {
+  const cols = (table: string): Set<string> =>
+    new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => r.name as string))
+  if (ver < 2) {
+    const runs = cols('surf_runs')
+    if (!runs.has('status')) db.exec("ALTER TABLE surf_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
+    if (!runs.has('finished_at')) db.exec('ALTER TABLE surf_runs ADD COLUMN finished_at TEXT')
+    db.exec('CREATE TABLE IF NOT EXISTS round_bumps ('
+      + 'round_id INTEGER NOT NULL, bucket TEXT NOT NULL, key TEXT NOT NULL,'
+      + 'cnt INTEGER NOT NULL DEFAULT 0, videos INTEGER NOT NULL DEFAULT 0,'
+      + 'PRIMARY KEY (round_id, bucket, key))')
+  }
+  db.exec(`PRAGMA user_version=${SCHEMA_VERSION}`)
+}
+
+const txDepth = new WeakMap<DatabaseSync, number>()
+
+/** 批量写事务：失败整体回滚（node:sqlite 默认逐句自动提交）；可嵌套——内层并入外层提交。 */
 export function tx<T>(db: DatabaseSync, fn: () => T): T {
+  if ((txDepth.get(db) ?? 0) > 0) return fn()
+  txDepth.set(db, 1)
   db.exec('BEGIN')
   try {
     const out = fn()
     db.exec('COMMIT')
     return out
   } catch (e) {
-    db.exec('ROLLBACK')
+    try { db.exec('ROLLBACK') } catch { /* 连接已坏时保留原错误 */ }
     throw e
+  } finally {
+    txDepth.set(db, 0)
   }
 }
 

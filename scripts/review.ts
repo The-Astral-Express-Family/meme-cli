@@ -6,10 +6,11 @@
  * 选集 = 全局 top N ∪ 每通道 top K（图梗/复读等小通道不被固定表达刷掉）；
  * 语义标记（泛回应?/弱模板?/虚词核?）对选集全量计算，等价于呈现层富化。
  */
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { connect, kvGet } from '../src/db.ts'
+import { backupDatabase } from '../src/backup.ts'
 import { loadConfig } from '../src/config.ts'
 import { allActive } from '../src/candidates.ts'
 import { isAwake } from '../src/lifecycle.ts'
@@ -29,10 +30,8 @@ const samplesN = Number(flag('--samples', '2'))
 const cfg = loadConfig()
 const tmpDir = mkdtempSync(join(tmpdir(), 'meme-review-'))
 const tmpDb = join(tmpDir, 'review.db')
-copyFileSync(cfg.dbPath, tmpDb)
-for (const ext of ['-wal', '-shm']) {
-  if (existsSync(cfg.dbPath + ext)) copyFileSync(cfg.dbPath + ext, tmpDb + ext)
-}
+// VACUUM INTO 一致性快照：WAL 下手工 copy 主库会丢未合并提交
+backupDatabase(cfg.dbPath, tmpDb, connect)
 
 const db = connect(tmpDb)
 // 与 surf 呈现同口径：末次证据超过存活窗口的 pending 候选休眠（新证据唤醒）

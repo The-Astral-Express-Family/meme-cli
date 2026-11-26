@@ -11,7 +11,8 @@
  */
 import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
-import { kvGet, tx } from '../db.ts'
+import { kvGet, kvSet, tx } from '../db.ts'
+import { bumpRound } from '../ledger.ts'
 import type { ResolvedConfig } from '../config.ts'
 import { allActive, hygienePass, save as saveCand, upsertFromSignal, type VideoPair } from '../candidates.ts'
 import type { Candidate } from '../models.ts'
@@ -93,11 +94,7 @@ export function semanticGenericSet(db: DatabaseSync, cfg: ResolvedConfig): Set<s
 }
 
 function bumpDaily(ctx: Ctx, table: 'phrase_daily' | 'skel_daily', key: string, cnt: number, videos: number): void {
-  const col = table === 'phrase_daily' ? 'phrase' : 'skel'
-  ctx.db.prepare(
-    `INSERT INTO ${table} VALUES(?,?,?,?) ON CONFLICT(${col},day) `
-    + 'DO UPDATE SET cnt=cnt+excluded.cnt, videos=MAX(videos, excluded.videos)',
-  ).run(key, ctx.day, cnt, videos)
+  bumpRound(ctx.db, ctx.roundId, table, key, ctx.day, cnt, videos)
 }
 
 /** 三级关联预计算：词表→same_form；骨架→derived；向量→related。 */
@@ -166,6 +163,8 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
     scanned: 0, phrase_candidates: 0, skeleton_candidates: 0,
     copy_candidates: 0, image_candidates: 0, triggered: [], merged: 0, pruned_spam: 0,
   }
+  // 同轮重跑守卫：台账已保证差量入账不双计，这里直接短路省掉整轮重算
+  if (kvGet(db, 'signals_done_round', '') === String(roundId)) return res
   const comments = commentsForRound(db, roundId)
   const units = extract.collectUnits(comments)
   // 视频标题作为高权重单元入场：标题本身就在玩梗（up 主刻意为之），
@@ -180,6 +179,7 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
     const hyg = hygienePass(db) // 空轮也自愈：--no-fetch 的存量轮照常清池
     res.merged = hyg.merged
     res.pruned_spam = hyg.pruned_spam
+    kvSet(db, 'signals_done_round', String(roundId))
     return res
   }
   res.scanned = units.length
@@ -259,6 +259,7 @@ export async function updateSignals(db: DatabaseSync, cfg: ResolvedConfig, round
   const hyg = hygienePass(db)
   res.merged = hyg.merged
   res.pruned_spam = hyg.pruned_spam
+  kvSet(db, 'signals_done_round', String(roundId))
   return res
 }
 

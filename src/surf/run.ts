@@ -6,6 +6,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
 import { kvGet, kvSet, tx } from '../db.ts'
+import { rollbackRound } from '../ledger.ts'
 import * as candidates from '../candidates.ts'
 import * as entries from '../entries.ts'
 import * as lifecycle from '../lifecycle.ts'
@@ -26,6 +27,70 @@ const stringList = (db: DatabaseSync, key: string): string[] => {
     const value = JSON.parse(kvGet(db, key, '[]') || '[]')
     return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
   } catch { return [] }
+}
+
+// ---- surf 单飞锁与半轮恢复 ----
+
+const SURF_LOCK_STALE_MS = 2 * 3600_000
+
+function pidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
+/**
+ * 单 surf 锁：bot 进程与 CLI 进程可能同时触发 surf，两个轮次交错写库会互相污染。
+ * 持锁进程崩溃后锁由 pid 存活检查 + 2 小时上限自动失效，不需要人工清理。
+ */
+function acquireSurfLock(db: DatabaseSync): void {
+  const raw = kvGet(db, 'surf_lock')
+  if (raw) {
+    try {
+      const lock = JSON.parse(raw) as { pid: number; acquired_at: string }
+      const age = Date.now() - Date.parse(lock.acquired_at)
+      if (Number.isFinite(lock.pid) && pidAlive(lock.pid) && age < SURF_LOCK_STALE_MS) {
+        throw new MemeError(
+          'MEME_SURF_BUSY',
+          `另一轮 surf 正在进行（pid=${lock.pid}，已运行 ${Math.round(age / 60000)} 分钟）`,
+          '等当前 surf 结束再试；确认进程已死可等锁自动过期（≤2 小时）。',
+        )
+      }
+    } catch (e) {
+      if (e instanceof MemeError) throw e
+      /* 坏锁数据视为无锁 */
+    }
+  }
+  kvSet(db, 'surf_lock', JSON.stringify({ pid: process.pid, acquired_at: nowIso() }))
+}
+
+function releaseSurfLock(db: DatabaseSync): void {
+  try {
+    const lock = JSON.parse(kvGet(db, 'surf_lock', '') || '{}') as { pid?: number }
+    if (lock.pid === process.pid) db.prepare('DELETE FROM kv_meta WHERE key=?').run('surf_lock')
+  } catch { /* 坏数据留给过期机制 */ }
+}
+
+/**
+ * 半轮恢复：上一次进程中断留下的 status='running' 轮按台账精确回滚日聚合，
+ * 评论/评论图片退回未入轮（round_id=0）交给下一轮重新认领，然后标记 failed。
+ * 上一轮已进候选的证据不用回退——候选合流按 (text, rpid) 去重，重跑天然幂等。
+ */
+function recoverStaleRounds(db: DatabaseSync): number[] {
+  const stale = db.prepare("SELECT round_id FROM surf_runs WHERE status='running' ORDER BY round_id").all() as Row[]
+  const recovered: number[] = []
+  for (const r of stale) {
+    const roundId = Number(r.round_id)
+    tx(db, () => {
+      rollbackRound(db, roundId)
+      db.prepare('UPDATE lake_comments SET round_id=0 WHERE round_id=?').run(roundId)
+      db.prepare('UPDATE lake_comment_images SET round_id=0 WHERE round_id=?').run(roundId)
+      db.prepare("UPDATE surf_runs SET status='failed', finished_at=? WHERE round_id=?").run(nowIso(), roundId)
+      if (Number(kvGet(db, 'signals_done_round', '0') || 0) === roundId) {
+        db.prepare('DELETE FROM kv_meta WHERE key=?').run('signals_done_round')
+      }
+    })
+    recovered.push(roundId)
+  }
+  return recovered
 }
 
 /** allow：精确解除封禁，并保留对内置/配置停用词的可逆豁免。 */
@@ -276,62 +341,82 @@ export interface SurfOpts {
 
 export async function runSurf(db: DatabaseSync, cfg: ResolvedConfig, opts: SurfOpts = {}): Promise<{ payload: Record<string, unknown>; human: string }> {
   const roundSize = opts.roundSize ?? cfg.retrieval.round_size
-  // ---- 新一轮 ----
-  const run = db.prepare('INSERT INTO surf_runs(started_at, fetched) VALUES(?, 0)').run(nowIso())
+  // ---- 半轮恢复 + 单飞锁 ----
+  const recovered = recoverStaleRounds(db)
+  acquireSurfLock(db)
+  const run = db.prepare("INSERT INTO surf_runs(started_at, fetched, status) VALUES(?, 0, 'running')").run(nowIso())
   const roundId = Number(run.lastInsertRowid)
-  // 群聊消息认领：bot 桥接写入的 round_id=0 行并入本轮，与 B站采集同批计算
-  const claimed = claimPendingIngest(db, roundId)
+  try {
+    // 群聊消息认领：bot 桥接写入的 round_id=0 行并入本轮，与 B站采集同批计算。
+    // 两条 UPDATE 事务化：认领了一半被打断时整体回退，避免视频丢轮次归属。
+    const claimed = tx(db, () => claimPendingIngest(db, roundId))
 
-  let fetchNote: string | null = null
-  let fres: FetchResult | null = null
-  if (opts.noFetch) {
-    fetchNote = '本轮不联网获取（--no-fetch），仍执行证据更新、状态重算与收割'
-  } else {
-    const doFetch = opts.fetch ?? runFetch
-    fres = await doFetch(db, cfg.fetch, roundId, resolveSessdata(cfg), opts.probe ?? [], opts.signal)
-    db.prepare(
-      'UPDATE surf_runs SET fetched=1, new_videos=?, new_comments=?, degraded=?, note=? WHERE round_id=?',
-    ).run(fres.new_videos, fres.new_comments, fres.degraded ? 1 : 0, fres.reason, roundId)
-    if (fres.degraded) fetchNote = fres.reason
-  }
+    let fetchNote: string | null = null
+    let fres: FetchResult | null = null
+    if (opts.noFetch) {
+      fetchNote = '本轮不联网获取（--no-fetch），仍执行证据更新、状态重算与收割'
+    } else {
+      const doFetch = opts.fetch ?? runFetch
+      fres = await doFetch(db, cfg.fetch, roundId, resolveSessdata(cfg), opts.probe ?? [], opts.signal)
+      db.prepare(
+        'UPDATE surf_runs SET fetched=1, new_videos=?, new_comments=?, degraded=?, note=? WHERE round_id=?',
+      ).run(fres.new_videos, fres.new_comments, fres.degraded ? 1 : 0, fres.reason, roundId)
+      if (fres.degraded) fetchNote = fres.reason
+    }
 
-  const sig = await updateSignals(db, cfg, roundId)
-  const dynamics = wildRecheck(db, cfg, roundId)
-  const fadeChanges = lifecycle.checkFade(db, cfg.lifecycle)
-  const trans = await lifecycle.transitionCandidates(db, cfg, roundId)
-  const reap = lifecycle.reapCandidates(db, cfg.lifecycle, roundId)
-  const lakeReaped = reapLake(db, roundId, cfg.lifecycle.surf_retention_rounds)
-  notes.dedupe(db)
+    const sig = await updateSignals(db, cfg, roundId)
+    const dynamics = wildRecheck(db, cfg, roundId)
+    const fadeChanges = lifecycle.checkFade(db, cfg.lifecycle)
+    const trans = await lifecycle.transitionCandidates(db, cfg, roundId)
+    const reap = lifecycle.reapCandidates(db, cfg.lifecycle, roundId)
+    const lakeReaped = reapLake(db, roundId, cfg.lifecycle.surf_retention_rounds)
+    notes.dedupe(db)
 
-  kvSet(db, 'surf_round', String(roundId))
-  kvSet(db, 'surf_hotwords', JSON.stringify(fres ? fres.hot_keywords : []))
+    kvSet(db, 'surf_round', String(roundId))
+    kvSet(db, 'surf_hotwords', JSON.stringify(fres ? fres.hot_keywords : []))
+    db.prepare("UPDATE surf_runs SET status='completed', finished_at=? WHERE round_id=?").run(nowIso(), roundId)
 
-  const qualified = await currentQualified(db, cfg, roundId, false)
-  const pageItems = qualified.slice(0, opts.full ? FULL_DUMP_CAP : roundSize)
-  const flagMap = await present.enrichFlags(db, cfg, pageItems.slice(0, 40))
-  const zones = buildZones(db, qualified, 0, roundSize, opts.full, flagMap, roundId)
-  zones.round = roundId
-  zones.claimed = claimed
-  zones.fetch = {
-    new_videos: fres ? fres.new_videos : 0,
-    new_comments: fres ? fres.new_comments : 0,
-    degraded: Boolean(fetchNote),
-    note: fetchNote,
-    probed: fres ? fres.probed : [],
-  }
-  zones.degraded = fetchNote
-  zones.signals = { ...sig }
-  zones.candidate_transitions = trans
-  zones.reap = { ...reap, lake_comments: lakeReaped }
-  zones.counts.reap = reap.low_value + reap.dead
-  zones.dynamics_raw = dynamics
-  zones.dynamics = dynamics
-    .slice(0, 10)
-    .map((d) => `${d.id} ${d.name}  ${d.change}${d.action ? `   → ${d.action}` : ''}`)
-  zones.fading = fadingZone(db, cfg, fadeChanges)
-  zones.counts.fading = zones.fading.length
-  return {
-    payload: zones,
-    human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize, Boolean(opts.full))),
+    const qualified = await currentQualified(db, cfg, roundId, false)
+    const pageItems = qualified.slice(0, opts.full ? FULL_DUMP_CAP : roundSize)
+    const flagMap = await present.enrichFlags(db, cfg, pageItems.slice(0, 40))
+    const zones = buildZones(db, qualified, 0, roundSize, opts.full, flagMap, roundId)
+    zones.round = roundId
+    zones.claimed = claimed
+    zones.recovered_rounds = recovered
+    zones.fetch = {
+      new_videos: fres ? fres.new_videos : 0,
+      new_comments: fres ? fres.new_comments : 0,
+      degraded: Boolean(fetchNote),
+      note: fetchNote,
+      probed: fres ? fres.probed : [],
+    }
+    zones.degraded = fetchNote
+    zones.signals = { ...sig }
+    zones.candidate_transitions = trans
+    zones.reap = { ...reap, lake_comments: lakeReaped }
+    zones.counts.reap = reap.low_value + reap.dead
+    zones.dynamics_raw = dynamics
+    zones.dynamics = dynamics
+      .slice(0, 10)
+      .map((d) => `${d.id} ${d.name}  ${d.change}${d.action ? `   → ${d.action}` : ''}`)
+    zones.fading = fadingZone(db, cfg, fadeChanges)
+    zones.counts.fading = zones.fading.length
+    return {
+      payload: zones,
+      human: present.renderZones(zones, present.pageFooter(0, zones.has_more, roundSize, Boolean(opts.full))),
+    }
+  } catch (e) {
+    // 半轮失败：按台账回滚本轮日聚合，评论留待下一轮恢复认领
+    try {
+      tx(db, () => {
+        rollbackRound(db, roundId)
+        db.prepare('UPDATE lake_comments SET round_id=0 WHERE round_id=?').run(roundId)
+        db.prepare('UPDATE lake_comment_images SET round_id=0 WHERE round_id=?').run(roundId)
+        db.prepare("UPDATE surf_runs SET status='failed', finished_at=? WHERE round_id=?").run(nowIso(), roundId)
+      })
+    } catch { /* 回滚失败也要抛出原始错误 */ }
+    throw e
+  } finally {
+    releaseSurfLock(db)
   }
 }

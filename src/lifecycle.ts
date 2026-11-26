@@ -4,8 +4,9 @@
  */
 import type { DatabaseSync } from 'node:sqlite'
 import * as audit from './audit.ts'
-import { allMemes, recordWildHit, save as saveMeme } from './entries.ts'
+import { allMemes, save as saveMeme } from './entries.ts'
 import { allActive as allActiveCands, save as saveCand } from './candidates.ts'
+import { bumpRound } from './ledger.ts'
 import { memeFeatures, memeScore, lifetimeCount } from './detect/evidence.ts'
 import { semanticFlags } from './detect/semantics.ts'
 import type { LifecycleConfig, ResolvedConfig } from './config.ts'
@@ -154,7 +155,8 @@ function consecutiveTail(rounds: number[], n: number, current: number): boolean 
 export function noteWildMatch(
   db: DatabaseSync, meme: Meme, roundId: number, day: string, hits: number, promoteRounds = 2,
 ): Meme {
-  recordWildHit(db, meme.id, day, hits)
+  // 走轮次台账：surf 半轮恢复重跑同轮不会把 meme_hit_daily 记两次
+  bumpRound(db, roundId, 'meme_hit_daily', meme.id, day, hits)
   if (!meme.wild_rounds.length || meme.wild_rounds[meme.wild_rounds.length - 1] !== roundId) {
     meme.wild_rounds = [...meme.wild_rounds, roundId].slice(-12)
   }

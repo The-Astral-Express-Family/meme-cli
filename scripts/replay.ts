@@ -13,11 +13,12 @@
  *
  * 标注集只存在于本文件（评估标定用途），绝不参与运行时检测/打分/触发。
  */
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { connect } from '../src/db.ts'
+import { backupDatabase } from '../src/backup.ts'
 import { resolveConfig } from '../src/config.ts'
 import { updateSignals } from '../src/detect/signals.ts'
 import { scoreCandidate } from '../src/detect/evidence.ts'
@@ -127,14 +128,16 @@ const dbArg = flag('--db', join(process.env.USERPROFILE ?? '~', '.meme', 'memes.
 const roundsArg = Number(flag('--rounds', '99')) // 全量湖轮次（基准固定：真网轮次会污染过期动态）
 
 const tmp = join(mkdtempSync(join(tmpdir(), 'meme-replay-')), 'replay.db')
-copyFileSync(dbArg, tmp)
+// VACUUM INTO 一致性快照：WAL 下手工 copy 主库会丢未合并提交
+backupDatabase(dbArg, tmp, connect)
 
-// 清空派生状态：候选/日聚合/序列，只留原始湖
+// 清空派生状态：候选/日聚合/序列/轮次台账，只留原始湖
 const raw = new DatabaseSync(tmp)
-for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily', 'meme_hit_daily']) {
+for (const t of ['candidates', 'cand_video', 'phrase_daily', 'skel_daily', 'meme_hit_daily', 'round_bumps']) {
   raw.exec(`DELETE FROM ${t}`)
 }
 raw.exec("DELETE FROM kv_meta WHERE key LIKE 'seq_%'")
+raw.exec("DELETE FROM kv_meta WHERE key='signals_done_round'")
 raw.close()
 
 const cfg = resolveConfig()

@@ -100,13 +100,6 @@ export function save(db: DatabaseSync, meme: Meme, vectors: VectorAnchor[] | nul
   }
 }
 
-export function recordWildHit(db: DatabaseSync, memeId: string, day: string, cnt: number): void {
-  db.prepare(
-    'INSERT INTO meme_hit_daily(meme_id,day,cnt) VALUES(?,?,?) '
-    + 'ON CONFLICT(meme_id,day) DO UPDATE SET cnt=cnt+excluded.cnt',
-  ).run(memeId, day, cnt)
-}
-
 /** 词条命中日序列（窗口内逐日，缺日补零）。 */
 export function dailySeries(db: DatabaseSync, memeId: string, days: number): number[] {
   const start = new Date(Date.now() - (days - 1) * 86400_000)
