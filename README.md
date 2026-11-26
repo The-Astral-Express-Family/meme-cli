@@ -119,7 +119,7 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 - 一期不做：流式回复、斜杠命令（/new 等）、配对码、富媒体交互。未配置 `qq` 段时插件行为与过去完全一致（纯 B站模式）。
 - 采集全程静默：写库失败只记日志丢弃，绝不影响群聊会话与 skill。
 
-## 发现端架构（v0.13：两套统计抽取器 + 图梗 + 群聊入池，文献依据见 docs/references.md）
+## 发现端架构（v0.13 起：两套统计抽取器 + 图梗 + 群聊入池，文献依据见 docs/references.md）
 
 抽取层（src/detect/extract.ts）替代旧 6 通道特判：
 
@@ -131,11 +131,11 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 
 **视频标题也是证据**：标题按 **5 倍评论权重**计票（跨视频门槛不变），两条不同 up 的标题玩同一公式即可立户。**跨轮创建补救**：轮内 dv=1 的完整表达若 phrase_daily 历史出现过即立户——散布多轮的低频完整单元不再永远立不了户（"steam管家"类截断案例的根因修复）。
 
-**判定与触发（v0.13）**：主判据是操作员判断“表述形成时间 / 典故或公式含义 / 新惯用用法”，词的类别不是主判据。管道只做统计筛选：话题词、普通词、泛夸词都可能过统计门，★仅表示待人工判断。score = 复读对(×2) + 骨架坍缩 + 独立成评 + 文本重复 + **keyness**（Dunning LLR，近 7 天 vs 8-90 天基线的跨语料显著性）+ **burst 等级**（Kleinberg 爆发自动机）− 语义罚分；burst/keyness 只进排序，不参与触发。独立成评只认归一化文本等于或严格包含候选完整形，模板按槽位形状另算；pending 至少 2 条有效用例，skeleton 至少 3 条。触发条件 = 存活 ≥2 轮 && 绝对出现次数达线（phrase ≥10，copy/skeleton ≥15，image 按跨视频数 ≥8）&& 纯特征分 ≥0.7 && 无语义否决。每轮对醒着的 pending/triggered 重算：达标 → triggered，不再达标 → pending；triggered 不粘住，没有永久待裁决队列。跨 up 门已整体取消，单视频/单群复读浪可放行；泛回应否决触发，泛夸只罚分不否决。
+**判定与触发（v0.13 起）**：主判据是操作员判断“表述形成时间 / 典故或公式含义 / 新惯用用法”，词的类别不是主判据。管道只做统计筛选：话题词、普通词、泛夸词都可能过统计门，★仅表示待人工判断。score = 复读对(×2) + 骨架坍缩 + 独立成评 + 文本重复 + **keyness**（Dunning LLR，近 7 天 vs 8-90 天基线的跨语料显著性）+ **burst 等级**（Kleinberg 爆发自动机）− 语义罚分；burst/keyness 只进排序，不参与触发。独立成评只认归一化文本等于或严格包含候选完整形，模板按槽位形状另算；pending 至少 2 条有效用例，skeleton 至少 3 条。触发条件 = 存活 ≥2 轮 && 绝对出现次数达线（phrase ≥10，copy/skeleton ≥15，image 按跨视频数 ≥8）&& 纯特征分 ≥0.7 && 无语义否决。每轮对醒着的 pending/triggered 重算：达标 → triggered，不再达标 → pending；triggered 不粘住，没有永久待裁决队列。跨 up 门已整体取消，单视频/单群复读浪可放行；泛回应否决触发，泛夸只罚分不否决。
 
 **池卫生**（每轮自愈）：**包含族合并**（互为包含且视频重合 ≥50% → 并入终身计数更高方；容器守卫：keeper 视频量超被吸收方 8 倍不得吸收——"感觉"不吞"感觉不如"）+ **固定⊂模板吸并**（固定头是模板核心的扩展实例且视频重合 → 并给模板；模板核心本身永不被自己的模板吸收）+ **自推垃圾剪枝**（同一作者同一句跨 ≥2 视频的 phrase 切片删除；整句复读走 copy 通道免剪）。候选可重建：规则修复后跑 `npx tsx scripts/rebuild.ts --apply` 按湖重放（先预览）。
 
-**部署生命周期（v0.13，区分开发期与部署期）**：开发期（默认）一切保留、可重建可回放；部署期的存储与注意力有界，由三个常数控制（`lifecycle` 配置）——**存活窗口** `surf_survive_rounds=7`（末次证据超过 7 轮的候选休眠：不评估、不呈现，新证据唤醒）；**死亡线** `candidate_death_days=28`（末次证据超过 28 天的候选删除，pending/triggered 一视同仁，inducted 豁免）；**低价值早清**（休眠且从未达体量线的候选直接删除）。候选不是永久待裁决队列：每轮 surf 重新筛选，只读 `meme check` 查看当前窗口过门条目。**原始湖留存** `surf_retention_rounds`：0 = 不清理（开发期默认）；部署期设 7，代价是更早历史不可重审；`round_id=0` 的群聊行永不被留存清理。长期态（词条/封禁/日聚合/笔记/审计）永不清理。收割在每轮 surf 末尾自动执行；`check` 不收割。已收录词条在群聊里的野外命中（wildRecheck）自动进命中日账本。
+**部署生命周期（v0.13 起，区分开发期与部署期）**：开发期（默认）一切保留、可重建可回放；部署期的存储与注意力有界，由三个常数控制（`lifecycle` 配置）——**存活窗口** `surf_survive_rounds=7`（末次证据超过 7 轮的候选休眠：不评估、不呈现，新证据唤醒）；**死亡线** `candidate_death_days=28`（末次证据超过 28 天的候选删除，pending/triggered 一视同仁，inducted 豁免）；**低价值早清**（休眠且从未达体量线的候选直接删除）。候选不是永久待裁决队列：每轮 surf 重新筛选，只读 `meme check` 查看当前窗口过门条目。**原始湖留存** `surf_retention_rounds`：0 = 不清理（开发期默认）；部署期设 7，代价是更早历史不可重审；`round_id=0` 的群聊行永不被留存清理。长期态（词条/封禁/日聚合/笔记/审计）永不清理。收割在每轮 surf 末尾自动执行；`check` 不收割。已收录词条在群聊里的野外命中（wildRecheck）自动进命中日账本。
 
 ## 行为要点
 
@@ -145,6 +145,7 @@ CLI 是独立进程，读不到 harness profile 的 cordis 配置——单源配
 - **观察期隔离**：observing 词条只服务理解侧——理解错梗无害，表达用错才是事故。
 - **遗忘**：词条侧 active → fading（观测日口径均值较峰值 -50%）→ tombstone（近零）；复活先给最小卡；词条永不删除，ID 永不回收。候选侧按部署生命周期休眠/删除；不再维护永久待裁决队列。`rejected` 状态用于记录精确封禁，`allow` 可恢复对应候选。
 - **降级**：B站获取失败不阻塞 surf，从原始湖存量照常执行一轮；`--no-fetch` 同样推进轮次、认领群聊、更新证据、重算状态并收割。
+- **surf 单飞与半轮恢复（v0.14）**：bot 进程与 CLI 并发只允许一轮 surf（`MEME_SURF_BUSY` 拒绝第二个；持锁进程崩溃后锁 ≤2 小时自动失效）；每轮带 running/completed/failed 状态，进程中断留下的半轮在下一轮 surf 开局按台账精确回滚日聚合（round_bumps 差量台账，重跑不双计）、评论退回未入轮重新认领、标记 failed；add/iterate 的词条+FTS+向量、候选收口与审计整体提交；ID 分配单条 upsert+RETURNING 原子化。备份一律 `VACUUM INTO` 一致性快照（replay/review/rebuild 不再手工复制运行中的库）。
 
 ## 开发
 
@@ -154,13 +155,16 @@ npm test                # 离线测试（假 fetcher + 假嵌入器 + 强制词�
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
-npx tsx scripts/benchmark-score.ts # 当前 v4（72 题整合版）评分
-npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建真实库
+npx tsx scripts/benchmark-score.ts # candidate-judgment v4（72 题）评分
+npx tsx scripts/oj-run.ts          # OJ lookup 行为基准：系统基线（benchmarks/oj-lookup-v1）
+npx tsx scripts/oj-score.ts        # OJ 评分（系统行与模型作答同 schema）
+npx tsx scripts/db-stats.ts        # 库存监控：表大小/WAL/freelist/轮次
+npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建（先自动一致性备份）
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
-# 操作判定手册见 docs/meme-judgment-guide.md；文献依据见 docs/references.md
+# 操作判定手册见 docs/meme-judgment-guide.md（benchmark prompt 由 scripts/bench-prompt.ts 引用它生成）；文献依据见 docs/references.md
 ```
 
-## 已知边界（v0.13）
+## 已知边界
 
 - 向量模型（fastembed `BAAI/bge-small-zh-v1.5`）首次使用需联网下载（缓存于 `~/.meme/model_cache`）；离线或不想下载时用 `MEME_EMBED_OFF=1` 强制关闭向量层——`lookup`/`search`/`surf`/`check` 仍可用，只是语义标记与向量召回缺失，全部退回纯词法。
 - B站搜索接口需登录态（`meme auth login`），匿名时探测通道自动跳过；`meme auth status` 可先查状态。
