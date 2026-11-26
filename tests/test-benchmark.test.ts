@@ -7,6 +7,7 @@ import {
 } from '../scripts/benchmark-score.ts'
 
 const V3 = join(process.cwd(), 'benchmarks', 'candidate-judgment-v3')
+const V4 = join(process.cwd(), 'benchmarks', 'candidate-judgment-v4')
 
 function outputRows(modelDir: string): BenchmarkOutput[] {
   const text = readFileSync(join(V3, 'outputs', modelDir, 'output.jsonl'), 'utf8')
@@ -14,14 +15,47 @@ function outputRows(modelDir: string): BenchmarkOutput[] {
 }
 
 describe('candidate judgment benchmark', () => {
-  it('loads the 48-case v3 dataset and verifies manifest hashes', () => {
-    const d = loadDataset(V3)
+  it('loads the 72-case v4 dataset and verifies LF-normalized manifest hashes', () => {
+    const d = loadDataset(V4)
     expect(d.manifest.labels_are_evaluation_only).toBe(true)
     expect(d.manifest.operator_review).toMatchObject({ status: 'confirmed' })
-    expect(d.cases).toHaveLength(48)
-    expect(d.labels).toHaveLength(48)
-    expect(new Set(d.cases.map((c) => c.case_id)).size).toBe(48)
+    expect(d.manifest.source).toMatchObject({ surf_round: 25, new_videos: 83, new_comments: 10127 })
+    expect(d.cases).toHaveLength(72)
+    expect(d.labels).toHaveLength(72)
+    expect(new Set(d.cases.map((c) => c.case_id)).size).toBe(72)
     expect(d.cases.every((c) => c.evidence.length > 0)).toBe(true)
+    expect(d.cases.filter((c) => c.channel === 'copy')).toHaveLength(8)
+    expect(d.cases.filter((c) => c.case_id.startsWith('cjv4-'))).toHaveLength(24)
+    const prompt = readFileSync(join(V4, 'prompt.md'), 'utf8')
+    expect(prompt).toContain('72 条模型可见案例')
+    expect(prompt).toContain('"case_id": "example-001"')
+    // 输出契约示例不得泄漏任何真实题号/证据号
+    expect(prompt).not.toMatch(/"case_id"\s*:\s*"cjv[134]-/)
+    expect(prompt).not.toMatch(/"source_cid"\s*:\s*"c_\d+"/)
+    expect(prompt).not.toMatch(/"evidence_ids"\s*:\s*\["cjv[134]-/)
+    // 同一 canonical 必须使用稳定且唯一的 family_id
+    const familyByCanonical = new Map<string, string>()
+    for (const label of d.labels) {
+      if (!label.canonical_head) continue
+      const prev = familyByCanonical.get(label.canonical_head)
+      if (prev !== undefined) expect(label.family_id).toBe(prev)
+      else familyByCanonical.set(label.canonical_head, label.family_id!)
+    }
+    // v3 的 48 题原样保留
+    const v3 = loadDataset(V3)
+    expect(d.cases.slice(0, 48)).toEqual(v3.cases)
+    expect(d.labels.slice(0, 48)).toEqual(v3.labels)
+  })
+
+  it('defaults to v4 and renders an explicit empty report before fresh model runs', () => {
+    const d = loadDataset()
+    expect(d.manifest.dataset_id).toBe('candidate-judgment-v4')
+    const report = scoreDataset(d)
+    expect(report.models).toEqual([])
+    const md = renderMarkdown(report)
+    expect(md).toContain('candidate-judgment-v4')
+    expect(md).toContain('案例数：72')
+    expect(md).toContain('暂无模型输出')
   })
 
   it('scores both OpenCode Go runs and keeps candidate/family/canonical separate', () => {

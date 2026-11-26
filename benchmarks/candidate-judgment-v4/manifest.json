@@ -1,0 +1,59 @@
+{
+  "dataset_id": "candidate-judgment-v4",
+  "version": 4,
+  "created_at": "2026-11-26",
+  "as_of": "2026-11-26",
+  "case_count": 72,
+  "source": {
+    "db": "operator ~/.meme/memes.db after networked surf rounds 23-25",
+    "db_sha256": "05404be5f4ca8e523356f562d68ec5395cc774e57a729831fc35a67a68e54df7",
+    "surf_round": 25,
+    "rounds": [
+      {
+        "round": 23,
+        "new_videos": 29,
+        "new_comments": 3373,
+        "qualified": 487,
+        "triggered": 436,
+        "demoted": 39
+      },
+      {
+        "round": 24,
+        "new_videos": 26,
+        "new_comments": 3236,
+        "qualified": 701,
+        "triggered": 415,
+        "demoted": 200
+      },
+      {
+        "round": 25,
+        "new_videos": 28,
+        "new_comments": 3518,
+        "qualified": 789,
+        "triggered": 376,
+        "demoted": 287
+      }
+    ],
+    "new_videos": 83,
+    "new_comments": 10127
+  },
+  "hashes": {
+    "prompt.md": "9447f1793cb596abc5de86949b9b033d47599f60b5c9b7ec3cb2dae4b8007074",
+    "cases.jsonl": "9d9c2a3d2eee3bdbcc16058adc1b20baa0b5b174496d7af9186b6b77bfbeacd3",
+    "labels.jsonl": "f044c71b548f577ff884e27b49ba1cfe874b75a4750f82028ec490fd0b8202c2"
+  },
+  "labels_are_evaluation_only": true,
+  "operator_review": {
+    "reviewed_at": "2026-11-26",
+    "status": "confirmed",
+    "changes": [
+      "保留 v3 的 48 条案例与金标，新增 24 条 2026-11-26 surf round 23-25 候选",
+      "新增题覆盖 phrase/skeleton/copy 三通道；image 因文本 benchmark 无法看图，暂不纳入"
+    ]
+  },
+  "notes": [
+    "v4 integrates the v3 48 cases with 24 newly screened cases; v3 remains unchanged.",
+    "No model outputs are bundled with v4; report is explicitly empty until fresh runs are added.",
+    "Text files are LF-normalized for manifest hashes on every platform."
+  ]
+}

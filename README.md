@@ -154,7 +154,7 @@ npm test                # 离线测试（假 fetcher + 假嵌入器 + 强制词�
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
-npx tsx scripts/benchmark-score.ts # 当前 v3（48 题整合版）评分
+npx tsx scripts/benchmark-score.ts # 当前 v4（72 题整合版）评分
 npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建真实库
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
 # 操作判定手册见 docs/meme-judgment-guide.md；文献依据见 docs/references.md

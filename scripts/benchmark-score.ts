@@ -3,7 +3,7 @@
  *
  * 用法：
  *   npx tsx scripts/benchmark-score.ts
- *   npx tsx scripts/benchmark-score.ts --format markdown --output benchmarks/candidate-judgment-v3/report.md
+ *   npx tsx scripts/benchmark-score.ts --format markdown --output benchmarks/candidate-judgment-v4/report.md
  *
  * 评分刻意分两层：
  * - candidate_verdict：候选词头本身是否立为梗（截断头/宿主词在这里可以是 not-meme）；
@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { z } from 'zod'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const DEFAULT_DATASET = join(ROOT, 'benchmarks', 'candidate-judgment-v3')
+const DEFAULT_DATASET = join(ROOT, 'benchmarks', 'candidate-judgment-v4')
 
 const VerdictSchema = z.enum(['meme', 'not-meme', 'conditional', 'abstain'])
 const GoldVerdictSchema = z.enum(['meme', 'not-meme', 'conditional'])
@@ -180,7 +180,7 @@ export function loadDataset(root: string = DEFAULT_DATASET): Dataset {
   for (const [file, expected] of Object.entries(manifest.hashes)) {
     const path = join(root, file)
     if (!existsSync(path)) throw new Error(`manifest 文件缺失：${file}`)
-    const actual = sha256(readFileSync(path))
+    const actual = sha256(readFileSync(path, 'utf8').replace(/\r\n/g, '\n'))
     if (actual !== expected) throw new Error(`manifest 哈希不匹配：${file}`)
   }
   const cases = readJsonl(join(root, 'cases.jsonl'), CaseSchema)
@@ -304,6 +304,12 @@ export function scoreModel(dataset: Dataset, model: string, outputs: BenchmarkOu
 export function scoreDataset(dataset: Dataset): BenchmarkReport {
   const dir = join(dataset.root, 'outputs')
   const runs: Array<{ name: string; model: string; order: number; file: string }> = []
+  if (!existsSync(dir)) {
+    return {
+      dataset_id: dataset.manifest.dataset_id, version: dataset.manifest.version,
+      case_count: dataset.manifest.case_count, models: [], agreement: [],
+    }
+  }
   for (const name of readdirSync(dir)) {
     const file = join(dir, name, 'output.jsonl')
     if (!existsSync(file)) continue

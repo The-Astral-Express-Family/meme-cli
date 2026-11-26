@@ -2,7 +2,7 @@
 
 这里保存真实候选、人工金标与模型输出的离线评估数据。金标只用于评估，不进入运行时。
 
-当前只保留 `candidate-judgment-v3`：48 题整合版，包含 hungerg-free 与 hy4-flash-free 两组输出。
+当前版本为 `candidate-judgment-v4`：72 题整合版（保留 v3 的 48 题，新增 2026-11-26 surf round 23–25 筛出的 24 题）。v4 暂未附带模型输出，报告明确为空；v3 的两组历史输出保留用于评分器回归。
 
 ## 原则
 
@@ -15,6 +15,6 @@
 
 ```sh
 npx tsx scripts/benchmark-score.ts
-npx tsx scripts/benchmark-score.ts --format json --output benchmarks/candidate-judgment-v3/report.json
+npx tsx scripts/benchmark-score.ts --format json --output benchmarks/candidate-judgment-v4/report.json
 npx vitest run tests/test-benchmark.test.ts
 ```
