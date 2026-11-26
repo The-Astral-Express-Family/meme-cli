@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Row } from '../db.ts'
 import { allMemes, get as getMeme } from '../entries.ts'
 import type { Meme, PatternSpec, Constraints } from '../models.ts'
-import { findTerms } from './lexicon.ts'
+import { findTerms, checkConstraints } from './lexicon.ts'
 import { matchInteraction } from './interaction.ts'
 import { compileTokens, matchSkeleton } from './skeleton.ts'
 import { blobToVec, cosine, getEmbedder, type Embedder } from './vector.ts'
@@ -71,15 +71,31 @@ export function matchCompiled(cm: CompiledMatcher, text: string, ctxLines: strin
   }
   for (const pat of cm.skeletonPatterns) {
     const hit = matchSkeleton(text, pat)
-    if (hit) return mk(hit, hit.matched, 2, 'skeleton')
+    // 约束全局作用于词条（手册语义）：骨架层同样受 forbid/require context 约束；
+    // forbid_inner/位置约束是词表层的词法语义，对跨 token 的骨架 span 不适用。
+    if (hit && checkContextConstraints(text, hit.start, hit.end, cons)) {
+      return mk(hit, hit.matched, 2, 'skeleton')
+    }
   }
   if (cm.interactionPats.length && ctxLines) {
     for (const p of cm.interactionPats) {
       const hit = matchInteraction(ctxLines, p)
-      if (hit) return mk(hit, hit.matched, 3, 'interaction')
+      if (hit && checkContextConstraints(text, hit.start, hit.end, cons)) {
+        return mk(hit, hit.matched, 3, 'interaction')
+      }
     }
   }
   return null
+}
+
+/**
+ * 仅上下文约束（forbid/require）的检查：骨架/交互层的 span 覆盖多 token，
+ * forbid 词落在 span 内部时按词表层同款"去重叠剩余"规则降级探测
+ * （checkConstraints 的 term 参数传空串时不做重叠探测，这里显式传 span 文本）。
+ */
+function checkContextConstraints(text: string, start: number, end: number, cons: Constraints): boolean {
+  if (!cons.forbid_context.length && !cons.require_context.length) return true
+  return checkConstraints(text, start, end, cons, undefined, text.slice(start, end))
 }
 
 /** 重叠 span 去重：按 tier 升序处理，先到先得（高 tier 必然先入 kept）。 */

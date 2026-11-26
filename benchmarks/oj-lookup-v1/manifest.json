@@ -1,0 +1,25 @@
+{
+  "dataset_id": "oj-lookup-v1",
+  "version": 1,
+  "created_at": "2026-11-26",
+  "entry_count": 26,
+  "case_count": 264,
+  "channels": {
+    "phrase": 158,
+    "formula": 67,
+    "interaction": 22,
+    "conditional": 17
+  },
+  "positives": 138,
+  "negatives": 126,
+  "hashes": {
+    "entries.jsonl": "3d49d8d98f8639d7d59d9c8b6b7d5c23a84d6a32bf872082946120f3215412ee",
+    "cases.jsonl": "045963fef38f7dd4f6bedb478c2ec0400937a3b6f05923e97ac82351561e6144"
+  },
+  "notes": [
+    "OJ behavior fixture：词条+期望同行存放（行为测试，非盲测）；模型作答用无期望 prompt（scripts/oj-judge-prompt.ts）。",
+    "负例的 expect.forbid 列出绝不允许命中的家族；多梗正例的额外命中由 scorer 单独统计，不进主混淆矩阵。",
+    "词条示例刻意避开 candidate-judgment-v4 金标同源梗，防止两套基准串题。",
+    "tag 含 slot-literal-hard 的负例是 matcher 已知硬负例（槽内词被吞进 span，窗口约束失效），scorer 分开统计。"
+  ]
+}
