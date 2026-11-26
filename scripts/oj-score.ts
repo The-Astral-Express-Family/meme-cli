@@ -64,8 +64,12 @@ export interface RunScore {
   extra_hits: number
   hard_negative_errors: number
   channels: Record<string, { total: number; tp: number; fp: number; fn: number; tn: number; accuracy: number }>
-  formula_slot_success: number
-  conditional_discrimination: number
+  /** 公式通道正例召回（= 替换成立的比例；负例另算 FP）。 */
+  formula_recall: number
+  /** 公式正例按槽位标签分组：同类替换 / 跨域替换 / 多词 / 多槽 / 标点。 */
+  formula_by_tag: Record<string, { total: number; tp: number; accuracy: number }>
+  /** 同文异境成对：同一句文本分别以命中/不命中语境出现，两者都判对才算数。 */
+  paired_context: { pairs: number; correct: number; accuracy: number }
   failed_cases: CaseScore[]
 }
 
@@ -122,7 +126,7 @@ export function scoreRun(cases: CaseRow[], model: string, outputs: OutputRow[]):
     model, total: cases.length, tp: 0, fp: 0, fn: 0, tn: 0,
     accuracy: 0, precision: 0, recall: 0, f1: 0,
     extra_hits: 0, hard_negative_errors: 0,
-    channels: {}, formula_slot_success: 0, conditional_discrimination: 0,
+    channels: {}, formula_recall: 0, formula_by_tag: {}, paired_context: { pairs: 0, correct: 0, accuracy: 0 },
     failed_cases: [],
   }
   const chOf = (ch: string): { total: number; tp: number; fp: number; fn: number; tn: number; accuracy: number } => {
@@ -130,6 +134,7 @@ export function scoreRun(cases: CaseRow[], model: string, outputs: OutputRow[]):
     return score.channels[ch]
   }
   const safeDiv = (a: number, b: number): number => b ? a / b : 0
+  const verdictOf = new Map<string, CaseScore['verdict']>()
   for (const c of cases) {
     const o = outById.get(c.id)!
     const hitFamilies = familyStrings(o.families)
@@ -153,6 +158,7 @@ export function scoreRun(cases: CaseRow[], model: string, outputs: OutputRow[]):
       }
     }
     chOf(c.channel).total++
+    verdictOf.set(c.id, verdict)
     if (verdict === 'TP' || verdict === 'TN') chOf(c.channel).accuracy = safeDiv(chOf(c.channel).tp + chOf(c.channel).tn, chOf(c.channel).total)
     if (verdict !== 'TP' && verdict !== 'TN') {
       score.failed_cases.push({
@@ -171,13 +177,62 @@ export function scoreRun(cases: CaseRow[], model: string, outputs: OutputRow[]):
   score.recall = recall
   score.f1 = safeDiv(2 * precision * recall, precision + recall)
   score.accuracy = safeDiv(score.tp + score.tn, score.total)
-  const formulaCases = cases.filter((c) => c.channel === 'formula')
-  const formulaTp = cases.filter((c) => c.channel === 'formula' && c.expect.hit).length
-    - score.channels.formula.fn
-  score.formula_slot_success = safeDiv(formulaTp, formulaCases.filter((c) => c.expect.hit).length)
-  const cond = score.channels.conditional
-  score.conditional_discrimination = cond.total ? cond.accuracy : 0
+  score.formula_recall = formulaRecall(cases, verdictOf)
+  score.formula_by_tag = formulaByTag(cases, verdictOf)
+  score.paired_context = pairedContext(cases, verdictOf)
   return score
+}
+
+/** 公式通道正例召回：TP / 正例数（负例由整体 FP 与通道准确率承担）。 */
+function formulaRecall(cases: CaseRow[], verdictOf: Map<string, CaseScore['verdict']>): number {
+  const pos = cases.filter((c) => c.channel === 'formula' && c.expect.hit)
+  return pos.length ? pos.filter((c) => verdictOf.get(c.id) === 'TP').length / pos.length : 0
+}
+
+/** 公式正例的替换类型分组：一条题只归入优先级最高的一个槽位标签，组间不重叠。 */
+const SLOT_TAGS = ['slot-same-domain', 'slot-cross-domain', 'multi-slot', 'slot-multi-word', 'punctuation'] as const
+
+function formulaByTag(
+  cases: CaseRow[], verdictOf: Map<string, CaseScore['verdict']>,
+): Record<string, { total: number; tp: number; accuracy: number }> {
+  const out: Record<string, { total: number; tp: number; accuracy: number }> = {}
+  const pos = cases.filter((c) => c.channel === 'formula' && c.expect.hit)
+  for (const tag of SLOT_TAGS) out[tag] = { total: 0, tp: 0, accuracy: 0 }
+  for (const c of pos) {
+    const tag = SLOT_TAGS.find((t) => c.tags.includes(t))
+    if (!tag) continue
+    out[tag].total += 1
+    if (verdictOf.get(c.id) === 'TP') out[tag].tp += 1
+  }
+  for (const v of Object.values(out)) v.accuracy = v.total ? v.tp / v.total : 0
+  return out
+}
+
+/**
+ * 同文异境成对：同一句文本既出现在"该命中"语境，也出现在"不该命中"语境。
+ * 只判对其中一边不算区分成功——这类样本正是 conditional/交互要证明的能力。
+ */
+function pairedContext(
+  cases: CaseRow[], verdictOf: Map<string, CaseScore['verdict']>,
+): { pairs: number; correct: number; accuracy: number } {
+  const groups = new Map<string, CaseRow[]>()
+  for (const c of cases) {
+    const key = c.input.text
+    groups.set(key, [...(groups.get(key) ?? []), c])
+  }
+  let pairs = 0
+  let correct = 0
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue
+    if (!rows.some((r) => r.expect.hit) || !rows.some((r) => !r.expect.hit)) continue
+    pairs += 1
+    const ok = rows.every((r) => {
+      const v = verdictOf.get(r.id)
+      return v === 'TP' || v === 'TN'
+    })
+    if (ok) correct += 1
+  }
+  return { pairs, correct, accuracy: pairs ? correct / pairs : 0 }
 }
 
 export function scoreOJDataset(root: string = DEFAULT_DATASET): OJReport {
@@ -212,11 +267,23 @@ export function renderOJMarkdown(report: OJReport): string {
   }
   lines.push(
     '',
-    '| 运行 | 准确率 | Precision | Recall | F1 | 额外命中 | 已知硬负例失分 | 公式替换成功率 | 上下文区分率 |',
+    '| 运行 | 准确率 | Precision | Recall | F1 | 额外命中 | 已知硬负例失分 | 公式正例召回 | 同文异境成对 |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   )
   for (const m of report.models) {
-    lines.push(`| ${m.model} | ${pct(m.accuracy)} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${m.extra_hits} | ${m.hard_negative_errors} | ${pct(m.formula_slot_success)} | ${pct(m.conditional_discrimination)} |`)
+    const pair = m.paired_context.pairs ? `${pct(m.paired_context.accuracy)}（${m.paired_context.correct}/${m.paired_context.pairs}）` : '无成对样本'
+    lines.push(`| ${m.model} | ${pct(m.accuracy)} | ${pct(m.precision)} | ${pct(m.recall)} | ${pct(m.f1)} | ${m.extra_hits} | ${m.hard_negative_errors} | ${pct(m.formula_recall)} | ${pair} |`)
+  }
+  // 公式替换按槽位类型拆开：同类替换会做、跨域替换不会做，是两类不同的失败。
+  const tagNames = Object.keys(report.models[0].formula_by_tag)
+  if (tagNames.length) {
+    lines.push('', '## 公式替换分组（正例召回）', '', '| 运行 | ' + tagNames.join(' | ') + ' |', '| --- | ' + tagNames.map(() => '---').join(' | ') + ' |')
+    for (const m of report.models) {
+      lines.push(`| ${m.model} | ${tagNames.map((t) => {
+        const g = m.formula_by_tag[t]
+        return g && g.total ? `${pct(g.accuracy)}（${g.tp}/${g.total}）` : '—'
+      }).join(' | ')} |`)
+    }
   }
   const channelNames = Object.keys(report.models[0].channels)
   lines.push('', '## 分通道', '', '| 运行 | ' + channelNames.join(' | ') + ' |', '| --- | ' + channelNames.map(() => '---').join(' | ') + ' |')

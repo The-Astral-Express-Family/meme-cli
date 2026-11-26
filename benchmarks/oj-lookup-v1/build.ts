@@ -356,8 +356,10 @@ F('jianding', '一眼<X>鉴定为<Y>', ['multi-slot'], [
 ])
 
 // ---- formula 硬负例：语法受限槽 / 字面义 / 残缺模板 ----
-const FN = (family: string, entry: string, tags: string[], rows: Array<{ text: string; note?: string }>): void => {
-  for (const r of rows) push({ channel: 'formula', family, entry, text: r.text, hit: false, forbid: [family], tags, note: r.note })
+// rows 可带 per-row tags 覆盖组标签：同组里"残缺"与"槽吞字面义"是两类失败，
+// 混用一个组标签会让 hard_negative 统计漏算（id 由顺序生成，不能靠拆组重排）。
+const FN = (family: string, entry: string, tags: string[], rows: Array<{ text: string; tags?: string[]; note?: string }>): void => {
+  for (const r of rows) push({ channel: 'formula', family, entry, text: r.text, hit: false, forbid: [family], tags: r.tags ?? tags, note: r.note })
 }
 FN('male', '<X>麻了', ['slot-literal-hard'], [
   { text: '脚都麻了', note: '肢体词被槽吞进 span（ent 贪婪跨 token）——matcher 已知硬负例' },
@@ -401,8 +403,8 @@ FN('hanjinliang', '<X>含金量还在上升', ['truncated', 'literal'], [
 ])
 FN('qidong', '<X>，启动！', ['truncated', 'literal-veto'], [
   { text: '启动！', note: '残缺：无主体槽' },
-  { text: '发动机启动了，准备出发', note: '字面启动，forbid_context 否决' },
-  { text: '汽车点火启动，很顺畅' },
+  { text: '发动机启动了，准备出发', tags: ['slot-literal-hard'], note: '字面启动，且"发动机"被 ent 吞进 span，forbid_context 管不到 span 内部' },
+  { text: '汽车点火启动，很顺畅', tags: ['slot-literal-hard'], note: '字面启动；同属槽吞字面义' },
 ])
 FN('jianding', '一眼<X>鉴定为<Y>', ['truncated'], [
   { text: '一眼鉴定为云玩家', note: '残缺：缺第一槽' },

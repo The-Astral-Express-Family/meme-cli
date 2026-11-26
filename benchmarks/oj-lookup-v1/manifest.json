@@ -14,7 +14,7 @@
   "negatives": 126,
   "hashes": {
     "entries.jsonl": "3d49d8d98f8639d7d59d9c8b6b7d5c23a84d6a32bf872082946120f3215412ee",
-    "cases.jsonl": "045963fef38f7dd4f6bedb478c2ec0400937a3b6f05923e97ac82351561e6144"
+    "cases.jsonl": "5560159a0c0db447e1fb64fc554b3f6da7f78786c0804cff3c61b0de5982aa62"
   },
   "notes": [
     "OJ behavior fixture：词条+期望同行存放（行为测试，非盲测）；模型作答用无期望 prompt（scripts/oj-judge-prompt.ts）。",

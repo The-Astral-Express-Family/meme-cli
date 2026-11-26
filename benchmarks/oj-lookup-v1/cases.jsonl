@@ -214,8 +214,8 @@
 {"id":"oj-0214","channel":"formula","family":"hanjinliang","entry_ref":"<X>含金量还在上升","input":{"text":"含金量还在上升"},"expect":{"hit":false,"forbid":["hanjinliang"]},"tags":["truncated","literal"],"note":"残缺：无主体槽"}
 {"id":"oj-0215","channel":"formula","family":"hanjinliang","entry_ref":"<X>含金量还在上升","input":{"text":"金条的含金量还在上升，金价又涨了"},"expect":{"hit":false,"forbid":["hanjinliang"]},"tags":["truncated","literal"],"note":"字面含金量——matcher 已知硬负例"}
 {"id":"oj-0216","channel":"formula","family":"qidong","entry_ref":"<X>，启动！","input":{"text":"启动！"},"expect":{"hit":false,"forbid":["qidong"]},"tags":["truncated","literal-veto"],"note":"残缺：无主体槽"}
-{"id":"oj-0217","channel":"formula","family":"qidong","entry_ref":"<X>，启动！","input":{"text":"发动机启动了，准备出发"},"expect":{"hit":false,"forbid":["qidong"]},"tags":["truncated","literal-veto"],"note":"字面启动，forbid_context 否决"}
-{"id":"oj-0218","channel":"formula","family":"qidong","entry_ref":"<X>，启动！","input":{"text":"汽车点火启动，很顺畅"},"expect":{"hit":false,"forbid":["qidong"]},"tags":["truncated","literal-veto"]}
+{"id":"oj-0217","channel":"formula","family":"qidong","entry_ref":"<X>，启动！","input":{"text":"发动机启动了，准备出发"},"expect":{"hit":false,"forbid":["qidong"]},"tags":["slot-literal-hard"],"note":"字面启动，且\"发动机\"被 ent 吞进 span，forbid_context 管不到 span 内部"}
+{"id":"oj-0218","channel":"formula","family":"qidong","entry_ref":"<X>，启动！","input":{"text":"汽车点火启动，很顺畅"},"expect":{"hit":false,"forbid":["qidong"]},"tags":["slot-literal-hard"],"note":"字面启动；同属槽吞字面义"}
 {"id":"oj-0219","channel":"formula","family":"jianding","entry_ref":"一眼<X>鉴定为<Y>","input":{"text":"一眼鉴定为云玩家"},"expect":{"hit":false,"forbid":["jianding"]},"tags":["truncated"],"note":"残缺：缺第一槽"}
 {"id":"oj-0220","channel":"formula","family":"jianding","entry_ref":"一眼<X>鉴定为<Y>","input":{"text":"鉴定为天才"},"expect":{"hit":false,"forbid":["jianding"]},"tags":["truncated"],"note":"残缺：缺\"一眼\"与第一槽"}
 {"id":"oj-0221","channel":"formula","family":"jianding","entry_ref":"一眼<X>鉴定为<Y>","input":{"text":"看了一眼，鉴定为巧合"},"expect":{"hit":true,"family":"jianding"},"tags":["punctuation-bridge"],"note":"标点被槽吸收的合法桥接"}

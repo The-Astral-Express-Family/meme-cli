@@ -89,9 +89,10 @@ function entrySection(): string {
 }
 
 function caseSection(chunk: CaseRow[]): string {
+  // 不打印 channel：那等于告诉模型"这题该按约束/上下文判"，会抬高判题分。
   return '## 待判输入\n\n' + chunk.map((c) => {
     const ctx = c.input.ctx ? `\n上句：${c.input.ctx[0]}\n本句（待判）：${c.input.ctx[1]}` : ''
-    return `- ${c.id}（${c.channel}）：${JSON.stringify(c.input.text)}${ctx}`
+    return `- ${c.id}：${JSON.stringify(c.input.text)}${ctx}`
   }).join('\n') + '\n'
 }
 
