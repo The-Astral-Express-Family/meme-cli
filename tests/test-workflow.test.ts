@@ -328,7 +328,7 @@ describe('收录收口、别名匹配与回测隔离', () => {
     } as never)
     expect(ia.meme.matcher!.patterns.some((p) => p.kind === 'lex' && p.terms.includes('交互别名'))).toBe(false)
     const { lookup } = await import('../src/match/pipeline.ts')
-    const { noEmbed } = await import('./test-matchers.test.ts')
+    const { noEmbed } = await import('./helpers.ts')
     expect(await lookup(env.db, '交互别名', null, 0.6, noEmbed())).toEqual([])
     expect((await lookup(env.db, '回应', ['触发', '回应'], 0.6, noEmbed())).some((h) => h.meme_id === ia.meme.id)).toBe(true)
   })
@@ -385,7 +385,8 @@ describe('收录收口、别名匹配与回测隔离', () => {
 
   it('iterate 排除自身重名；恢复 matcher 需独立候选证据或显式 holdout，force 可绕过并审计', async () => {
     await runAddEntry(env.db, env.cfg, entry('原词'))
-    await expect(runIterate(env.db, env.cfg, 'm_0001', { entry: entry('原词') })).resolves.toBeTruthy()
+    const iterated = await runIterate(env.db, env.cfg, 'm_0001', { entry: entry('原词') })
+    expect(iterated.meme.id).toBe('m_0001') // iterate 原位更新保留 id
     const compiled = { patterns: [{ kind: 'lex', terms: ['新词'] }], constraints: {} }
     await expect(runIterate(env.db, env.cfg, 'm_0001', { entry: entry('新词', [], compiled) }))
       .rejects.toMatchObject({ code: 'MEME_MATCHER_EVIDENCE_REQUIRED' })

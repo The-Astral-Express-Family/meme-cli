@@ -137,7 +137,7 @@ describe('骨架通道', () => {
 describe('关联预计算', () => {
   it('词表同形 → same_form', async () => {
     const { save } = await import('../src/entries.ts')
-    const { makeMeme, matcher, constraints, pattern } = await import('./test-matchers.test.ts')
+    const { makeMeme, matcher, constraints, pattern } = await import('./helpers.ts')
     save(env.db, makeMeme({
       id: 'm_0001', name: '典', aliases: [], state: 'active',
       matcher: matcher([pattern({ kind: 'lex', terms: ['典'] })], constraints({ standalone: true })),

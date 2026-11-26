@@ -163,7 +163,7 @@ describe('重名守卫 + iterate', () => {
   })
 
   it('iterate 证据收集：当前 matcher 在湖中的野外命中文本进入证据包', async () => {
-    const { makeMeme, matcher, pattern } = await import('./test-matchers.test.ts')
+    const { makeMeme, matcher, pattern } = await import('./helpers.ts')
     entries.save(env.db, makeMeme({
       id: 'm_0001', name: '难绷', state: 'observing',
       matcher: matcher([pattern({ kind: 'lex', terms: ['难绷'] })]),

@@ -73,6 +73,11 @@ describe('采集缓冲', () => {
     await buf.dispose()
     rows = env.db.prepare("SELECT COUNT(*) AS c FROM lake_comments WHERE oid<0").get() as { c: number }
     expect(rows.c).toBe(4)
+    // 同 msg_id 第二次投递经 INSERT OR IGNORE 天然去重，不新增行
+    buf.push({ msg_id: 'M9', group: 'G1', sender: 'S1', content: '末条', ts_ms: Date.now() })
+    await buf.dispose()
+    rows = env.db.prepare("SELECT COUNT(*) AS c FROM lake_comments WHERE oid<0").get() as { c: number }
+    expect(rows.c).toBe(4)
     // 空内容/缺字段被丢弃
     buf.push({ msg_id: '', group: 'G1', sender: 'S1', content: 'x' })
     buf.push({ msg_id: 'M10', group: 'G1', sender: 'S1', content: '  ' })

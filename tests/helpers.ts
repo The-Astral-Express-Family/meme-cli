@@ -1,19 +1,28 @@
-/** 测试夹具：临时库、假 fetcher。全部离线（MEME_EMBED_OFF=1 见 vitest.config）。 */
+/** 测试夹具：临时库、假 fetcher、matcher 构造 helper。全部离线（MEME_EMBED_OFF=1 见 vitest.config）。 */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll } from 'vitest'
+import { afterAll, afterEach } from 'vitest'
 import { connect, type Row } from '../src/db.ts'
 import { resolveConfig, type ResolvedConfig } from '../src/config.ts'
 import { FetchResult } from '../src/fetch/sampler.ts'
+import type { Constraints, MatcherSpec, Meme, PatternSpec } from '../src/models.ts'
 
 const tmpDirs: string[] = []
 const openDbs: Array<ReturnType<typeof connect>> = []
-afterAll(() => {
+
+function cleanup(): void {
   // Windows 上 WAL 文件持有句柄：先关连接再删临时目录（失败则留给系统临时目录自清理）
   for (const db of openDbs) {
     try { db.close() } catch { /* 已关闭 */ }
   }
+  openDbs.length = 0
+}
+
+// 每个测试结束就释放连接，避免临时库句柄跨测试堆积；afterAll 只做兜底清目录
+afterEach(cleanup)
+afterAll(() => {
+  cleanup()
   for (const d of tmpDirs) {
     try { rmSync(d, { recursive: true, force: true }) } catch { /* 句柄延迟释放 */ }
   }
@@ -73,3 +82,37 @@ export function seedComments(
 }
 
 export type { Row }
+
+// ---- matcher 构造 helper（原在 test-matchers.test.ts 内导出；移到夹具避免
+//      .test.ts 文件互相 import 导致 describe 块被重复注册）----
+
+export const constraints = (o: Partial<Constraints> = {}): Constraints => ({
+  standalone: false, sentence_final: false, forbid_inner: false,
+  forbid_context: [], require_context: [], context_window: 12, ...o,
+})
+
+/** PatternSpec 字段全量填充（zod 输出类型要求六数组齐全）。 */
+export const pattern = (p: Partial<PatternSpec> & { kind: PatternSpec['kind'] }): PatternSpec => ({
+  terms: [], tokens: [], trigger_terms: [], trigger_tokens: [], response_terms: [], response_tokens: [],
+  ...p,
+})
+
+export const matcher = (patterns: PatternSpec[], cons?: Constraints): MatcherSpec => ({
+  patterns, constraints: cons ?? constraints(),
+})
+
+export function makeMeme(overrides: Partial<Meme> & { matcher?: MatcherSpec | null }): Meme {
+  return {
+    id: 'm_0001', name: '典', aliases: ['典中典'], class: 'word',
+    lineage: { parent: null, mutation: null }, platform: ['bilibili'], state: 'observing',
+    birth: { circa: null }, matcher: overrides.matcher ?? null,
+    card: { gist: '单字反讽"经典"', usage: [], taboo: null, register: null, aggression: null },
+    examples: [], drift: [], stats: { wild_freq_30d: 0, peak_freq: 0, last_seen: null, last_matched_round: 0 },
+    wild_rounds: [], revived_pending: 0, created_at: 'x', updated_at: 'x',
+    ...overrides,
+  }
+}
+
+export function noEmbed() {
+  return { available: false, dim: null, embed: async () => null } as never
+}

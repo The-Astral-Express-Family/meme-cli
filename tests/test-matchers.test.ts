@@ -4,36 +4,9 @@ import { CompiledMatcher, lookup, matchCompiled } from '../src/match/pipeline.ts
 import { findTerms } from '../src/match/lexicon.ts'
 import { compileTokens, matchSkeleton } from '../src/match/skeleton.ts'
 import { matchInteraction } from '../src/match/interaction.ts'
-import type { Constraints, MatcherSpec, PatternSpec, Meme } from '../src/models.ts'
+import type { PatternSpec } from '../src/models.ts'
 import { save as saveMeme } from '../src/entries.ts'
-import { makeCfg, openDb } from './helpers.ts'
-
-export const constraints = (o: Partial<Constraints> = {}): Constraints => ({
-  standalone: false, sentence_final: false, forbid_inner: false,
-  forbid_context: [], require_context: [], context_window: 12, ...o,
-})
-
-/** PatternSpec 字段全量填充（zod 输出类型要求六数组齐全）。 */
-export const pattern = (p: Partial<PatternSpec> & { kind: PatternSpec['kind'] }): PatternSpec => ({
-  terms: [], tokens: [], trigger_terms: [], trigger_tokens: [], response_terms: [], response_tokens: [],
-  ...p,
-})
-
-export const matcher = (patterns: PatternSpec[], cons?: Constraints): MatcherSpec => ({
-  patterns, constraints: cons ?? constraints(),
-})
-
-export function makeMeme(overrides: Partial<Meme> & { matcher?: MatcherSpec | null }): Meme {
-  return {
-    id: 'm_0001', name: '典', aliases: ['典中典'], class: 'word',
-    lineage: { parent: null, mutation: null }, platform: ['bilibili'], state: 'observing',
-    birth: { circa: null }, matcher: overrides.matcher ?? null,
-    card: { gist: '单字反讽"经典"', usage: [], taboo: null, register: null, aggression: null },
-    examples: [], drift: [], stats: { wild_freq_30d: 0, peak_freq: 0, last_seen: null, last_matched_round: 0 },
-    wild_rounds: [], revived_pending: 0, created_at: 'x', updated_at: 'x',
-    ...overrides,
-  }
-}
+import { makeCfg, makeMeme, matcher, noEmbed, openDb, constraints, pattern } from './helpers.ts'
 
 describe('词表层', () => {
   it('standalone 防长词内部误报', () => {
@@ -123,7 +96,3 @@ describe('流水线', () => {
     expect(hits).toEqual([])
   })
 })
-
-export function noEmbed() {
-  return { available: false, dim: null, embed: async () => null } as never
-}

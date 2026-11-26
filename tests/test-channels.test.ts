@@ -168,15 +168,27 @@ describe('跨轮累积与触发', () => {
   })
 
   it('泛用词体量达线但句句不同 → 特征分挡住，不触发', async () => {
-    const variants = ['这波真舒服', '看完很舒服', '坐着舒服', '躺着舒服', '手感舒服', '音质舒服', '椅子舒服', '床很舒服']
-    for (let rid = 1; rid <= 4; rid++) {
-      seedComments(env.db, variants.map((v, i) => `${v}第${rid}轮${i}`),
-        Array.from({ length: 8 }, (_, i) => 810 + rid * 10 + i), rid, 0, 70000 + rid * 100)
-      await updateSignals(env.db, env.cfg, rid)
-    }
-    await transitionCandidates(env.db, env.cfg, 4)
-    const cand = candidates.byHead(env.db, '舒服')
-    if (cand) expect(cand.state, '泛用词被误触发').not.toBe('triggered')
+    // 直造候选验证触发门本身：体量线（phrase_daily 终身次数）达标，但用例句句不同
+    // → memeScore 的复读/坍缩特征拉不满，语义门应挡住（原实现靠 seedComments 走
+    // 全管线，"舒服"根本立不了户，断言 if (cand) 空转多年）
+    // 句式结构也要互不相同：骨架层会把同构句坍缩到同一模板，同构会被误判为公式复读
+    const diverse = [
+      '今天天气真好想出门走走', '我家猫把花瓶打翻了', '新版本更新后卡成幻灯片',
+      '食堂阿姨今天手抖得厉害', '作业堆成山根本写不完', '这部电影结局意外好看',
+      '早高峰地铁挤到怀疑人生', '房租又涨了真的顶不住', '昨晚球赛绝杀太燃了',
+      '单曲循环了一整天这首歌', '图书馆新到的书真不错', '下班路上大堵车',
+    ]
+    const usages = diverse.map((text, i) => ({ text, aid: 700 + i, rpid: 5000 + i, root: 0, parent: 0, mid: 300 + i, ctime: 0, chain: false }))
+    const cand = candidates.upsertFromSignal(env.db, {
+      head: '舒服', channel: 'phrase', kind_guess: 'word',
+      usages, video_pairs: usages.map((u) => ({ aid: u.aid, up_mid: 0 })), round_id: 3,
+    })
+    cand.surfs_seen = 4
+    candidates.save(env.db, cand)
+    const day = new Date().toISOString().slice(0, 10)
+    env.db.prepare('INSERT OR REPLACE INTO phrase_daily(phrase,day,cnt,videos) VALUES(?,?,?,?)').run('舒服', day, 40, 12)
+    const { candidateShouldTrigger } = await import('../src/lifecycle.ts')
+    expect(await candidateShouldTrigger(env.db, candidates.get(env.db, cand.cid)!, env.cfg.lifecycle, env.cfg)).toBe(false)
   })
 
   it('词类跨 ≥5 视频即触发（新物快传与累计体量同一条线）', async () => {

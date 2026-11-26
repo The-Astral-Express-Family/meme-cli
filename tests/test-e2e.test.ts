@@ -5,7 +5,7 @@ import * as notes from '../src/notes.ts'
 import { lookup } from '../src/match/pipeline.ts'
 import { hybridSearch } from '../src/retrieve/fuse.ts'
 import * as cards from '../src/render/cards.ts'
-import { makeMeme, matcher, constraints, noEmbed, pattern } from './test-matchers.test.ts'
+import { makeMeme, matcher, constraints, noEmbed, pattern } from './helpers.ts'
 import { makeCfg, openDb } from './helpers.ts'
 
 let env: { db: ReturnType<typeof openDb>; cfg: ReturnType<typeof makeCfg>['cfg'] }

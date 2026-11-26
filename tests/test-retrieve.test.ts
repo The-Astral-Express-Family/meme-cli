@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { save as saveMeme } from '../src/entries.ts'
-import { makeMeme, matcher, constraints, pattern } from './test-matchers.test.ts'
+import { makeMeme, matcher, constraints, pattern } from './helpers.ts'
 import { searchFts } from '../src/retrieve/fts.ts'
 import { hybridSearch } from '../src/retrieve/fuse.ts'
 import { validateAndCompile, MatcherError } from '../src/induct/compileMatcher.ts'
@@ -16,7 +16,7 @@ import { connect, APP_ID } from '../src/db.ts'
 import { lookup } from '../src/match/pipeline.ts'
 import { renderZones, candDict, candLine, orderKey } from '../src/surf/present.ts'
 import { makeCfg, openDb } from './helpers.ts'
-import { noEmbed } from './test-matchers.test.ts'
+import { noEmbed } from './helpers.ts'
 
 let env: { db: ReturnType<typeof openDb>; cfg: ReturnType<typeof makeCfg>['cfg'] }
 beforeEach(() => {
@@ -66,7 +66,9 @@ describe('候选呈现', () => {
       + "'2026-01-01','2026-01-01','[]','[{\"id\":\"m_0101\",\"type\":\"same_form\",\"score\":0.9}]','2026-01-01','2026-01-01')",
     ).run()
     const cand = candidates.get(env.db, 'c_0500')!
-    expect(candLine(env.db, cand, new Map([['m_0101', '典']]))).toBeTruthy()
+    const line = candLine(env.db, cand, new Map([['m_0101', '典']]))
+    expect(line).toContain('c_0500')
+    expect(line).toContain('典中典')
     expect((candDict(env.db, cand).related as Array<{ id: string }>)[0].id).toBe('m_0101')
     expect(orderKey(env.db, cand)).toEqual(orderKey(env.db, candidates.get(env.db, 'c_0500')!)) // 确定性
   })

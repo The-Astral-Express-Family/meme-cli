@@ -6,7 +6,7 @@ import * as entries from '../src/entries.ts'
 import * as lifecycle from '../src/lifecycle.ts'
 import { upsertFromSignal, get as getCand } from '../src/candidates.ts'
 import { reapLake } from '../src/lake.ts'
-import { makeMeme, matcher, constraints, pattern } from './test-matchers.test.ts'
+import { makeMeme, matcher, constraints, pattern } from './helpers.ts'
 import { makeCfg, openDb, seedComments, type Row } from './helpers.ts'
 import type { UsageSample } from '../src/models.ts'
 
@@ -282,12 +282,5 @@ describe('词条状态机', () => {
     m3.revived_pending = 2
     entries.save(env.db, m3)
     expect(entries.get(env.db, 'm_0030')!.revived_pending).toBe(2)
-  })
-})
-
-describe('usage sample 类型', () => {
-  it('UsageSample roundtrip', () => {
-    const u: UsageSample = { text: 'x', aid: 1, rpid: 2, root: 0, parent: 0, mid: 0, ctime: 0, chain: true }
-    expect(u.chain).toBe(true)
   })
 })

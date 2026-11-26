@@ -14,7 +14,7 @@ import { COMMANDS, type CmdOut } from '../src/cli/commands.ts'
 import { parse, UsageError } from '../src/cli/parser.ts'
 import { openRuntime, type Runtime } from '../src/cli/runtime.ts'
 import { makeCfg } from './helpers.ts'
-import { makeMeme, matcher, pattern } from './test-matchers.test.ts'
+import { makeMeme, matcher, pattern } from './helpers.ts'
 
 let rt: Runtime
 beforeEach(() => {

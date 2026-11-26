@@ -19,8 +19,11 @@ describe('detect/skel', () => {
     expect(shared.some((s) => s.includes('一眼') && s.includes('鉴定') && s.includes('<ent>'))).toBe(true)
   })
 
-  it('骨架哈希稳定', () => {
-    expect(skeletonHash('一眼 <ent> 鉴定为 <ent>')).toBe(skeletonHash('一眼 <ent> 鉴定为 <ent>'))
+  it('骨架哈希稳定且区分不同骨架', () => {
+    const a = skeletonHash('一眼 <ent> 鉴定为 <ent>')
+    expect(a).toBe(skeletonHash('一眼 <ent> 鉴定为 <ent>')) // 同形同哈希
+    expect(a).not.toBe(skeletonHash('一眼 <ent> 鉴定为 <any>')) // 异形异哈希
+    expect(a).toMatch(/^[0-9a-f]{16}$/) // 固定 16 位十六进制
   })
 
   it('spanned 偏移覆盖原文', () => {
