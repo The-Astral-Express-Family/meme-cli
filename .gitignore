@@ -21,5 +21,7 @@ benchmarks/**/report.json
 benchmarks/**/judge-prompt*
 benchmarks/curator-v1/runs/
 benchmarks/curator-v1/authoring/
+benchmarks/curator-v2/runs/
+benchmarks/curator-v2/authoring/
 credentials*.json
 tmp-*.md

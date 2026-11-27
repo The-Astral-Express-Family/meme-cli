@@ -1,6 +1,8 @@
 # v5 策展题基准（curator-v1）
 
 > 定稿待实现。本文只写必须遵从的约束；示例、执行清单、待办在临时交接文档（`tmp-curator-v5-handoff.md`）。
+>
+> `curator-v2` 复用本契约但使用独立数据版本（82 候选 / 13 家族 / 79 噪音候选 / 249 查询）；本文中的 71/29/45/264 是 `curator-v1` 的定稿规模，见 `benchmarks/curator-v2/README.md`。
 
 ## 1. 是什么
 

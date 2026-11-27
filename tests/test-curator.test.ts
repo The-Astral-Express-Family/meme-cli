@@ -1,12 +1,13 @@
 /** curator-v1 scorer 纯逻辑测试：判定矩阵 / 归属 / subtask 指标 / 原因标签 / 消融参数。
  * 全部合成数据，不依赖 queries.jsonl 与 run 产物。 */
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { computeScore, type LookupRow, type Query } from '../scripts/curator-score.ts'
 import { buildAttribution, containsForm, negativeViolations, parseTranscriptLinks, positiveContains, type GoldData, type LabelRow } from '../scripts/curator-lib.ts'
+import { toSeed } from '../scripts/curator-seed.ts'
 import { connect } from '../src/db.ts'
 
 function labelRow(cid: string, family: string | null, verdict: LabelRow['candidate_verdict'], head: string | null, forms: string[]): LabelRow {
@@ -188,6 +189,48 @@ describe('parseTranscriptLinks（transcript 显式 --cid 归属）', () => {
   })
   it('transcript 不存在时返回空表', () => {
     expect(parseTranscriptLinks(join(dir, 'nope.jsonl')).size).toBe(0)
+  })
+})
+
+describe('seed 导出', () => {
+  it('保留候选证据的 root/parent/ctime，缺省仍为 0', () => {
+    const seed = toSeed({
+      case_id: 't', source_cid: 'c_1', head: '梗', kind_guess: 'word', channel: 'phrase', state: 'triggered', videos: 1, ups: 1,
+      evidence: [{ text: '回复', aid: 1, rpid: 2, mid: 3, is_chain: true, root: 4, parent: 5, ctime: 6 }],
+    })
+    expect(seed.evidence_usages[0]).toMatchObject({ root: 4, parent: 5, ctime: 6, chain: true })
+    const fallback = toSeed({
+      case_id: 't2', source_cid: 'c_2', head: '普通', kind_guess: 'word', channel: 'phrase', state: 'pending', videos: 1, ups: 1,
+      evidence: [{ text: '普通', aid: 1, rpid: 2, mid: 3, is_chain: false }],
+    })
+    expect(fallback.evidence_usages[0]).toMatchObject({ root: 0, parent: 0, ctime: 0 })
+  })
+})
+
+describe('candidate-judgment-v5 数据契约', () => {
+  const labels = readFileSync('benchmarks/candidate-judgment-v5/labels.jsonl', 'utf8').trim().split('\n').map((l) => JSON.parse(l) as LabelRow)
+  const cases = readFileSync('benchmarks/candidate-judgment-v5/cases.jsonl', 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { case_id: string; source_cid: string })
+
+  it('82 条 case/label 一一对应，13 家族、79 噪音候选', () => {
+    expect(cases).toHaveLength(82)
+    expect(labels).toHaveLength(82)
+    expect(new Set(labels.filter((l) => l.family_id).map((l) => l.family_id)).size).toBe(13)
+    expect(labels.filter((l) => l.candidate_verdict === 'not-meme')).toHaveLength(79)
+    expect(new Map(labels.map((l) => [l.case_id, l.source_cid]))).toEqual(new Map(cases.map((c) => [c.case_id, c.source_cid])))
+  })
+
+  it('真实梗但证据不足的三条被移出评分集，不污染 noise_pass', () => {
+    const excluded = new Set(['c_67331', 'c_79204', 'c_82428'])
+    for (const cid of excluded) expect(cases.some((c) => c.source_cid === cid)).toBe(false)
+  })
+
+  it('遵守用户对 A8/A10 的收窄修正', () => {
+    const a8 = labels.find((l) => l.family_id === 'zhen-na-ni-mei-ban')!
+    expect(a8.accepted_canonical_forms).toContain('真拿你没办法，坐好喽')
+    expect(a8.accepted_canonical_forms).toContain('真拿你没办法，坐好了')
+    expect(a8.accepted_canonical_forms.some((f) => f.includes('做好喽'))).toBe(false)
+    const a10 = labels.find((l) => l.family_id === 'wen-wen-de-jie-zhu-ni')!
+    expect(a10.accepted_canonical_forms).toEqual(['稳稳地接住你'])
   })
 })
 

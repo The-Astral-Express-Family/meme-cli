@@ -14,7 +14,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { connect } from '../src/db.ts'
-import { QUERIES_FILE, RUNS_DIR, loadGold, readJsonl, buildAttribution, parseTranscriptLinks } from './curator-lib.ts'
+import { BENCH_ROOT, QUERIES_FILE, RUNS_DIR, loadGold, readJsonl, buildAttribution, parseTranscriptLinks } from './curator-lib.ts'
 
 process.env.MEME_EMBED_OFF = '1'
 
@@ -349,7 +349,7 @@ function cmdAblation(): void {
     runs_with_policy_divergence: discriminating.length,
     conclusion,
   }
-  const file = 'benchmarks/curator-v1/ablation.json'
+  const file = `${BENCH_ROOT}/ablation.json`
   writeFileSync(file, JSON.stringify(out, null, 2) + '\n')
   console.log(`\nablation.json → ${file}`)
   console.log(`排序 A(full)=${rankAfull.join(' > ')}`)

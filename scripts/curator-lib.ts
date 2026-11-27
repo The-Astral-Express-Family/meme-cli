@@ -1,11 +1,13 @@
-/** curator-v1 基准共享库：路径、v4 金标加载、词条归属（judge/score/perfect 共用）。 */
+/** curator 基准共享库：路径、金标加载、词条归属（judge/score/perfect 共用）。
+ * 默认指向 curator-v1；新版本通过 CURATOR_BENCH_ROOT / CURATOR_GOLD_DIR 切换。
+ */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { normalizeHead } from '../src/detect/evidence.ts'
 
-export const BENCH_ROOT = 'benchmarks/curator-v1'
-export const V4_DIR = 'benchmarks/candidate-judgment-v4'
+export const BENCH_ROOT = process.env.CURATOR_BENCH_ROOT ?? 'benchmarks/curator-v1'
+export const V4_DIR = process.env.CURATOR_GOLD_DIR ?? 'benchmarks/candidate-judgment-v4'
 export const QUERIES_FILE = `${BENCH_ROOT}/queries.jsonl`
 export const SEED_FILE = `${BENCH_ROOT}/seed/candidates.jsonl`
 export const RUNS_DIR = `${BENCH_ROOT}/runs`
@@ -73,7 +75,7 @@ export function sha256File(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-/** 加载 v4 金标（评测专用数据，答题 agent 不可见）。 */
+/** 加载当前 CURATOR_GOLD_DIR 金标（评测专用数据，答题 agent 不可见）。 */
 export function loadGold(): GoldData {
   const rows = readJsonl<LabelRow>(`${V4_DIR}/labels.jsonl`)
   const byCid = new Map<string, CidInfo>()

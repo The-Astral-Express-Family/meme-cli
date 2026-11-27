@@ -1,4 +1,4 @@
-/** curator-v1 满分库构建（验收基线，见设计 §6）：
+/** curator 满分库构建（验收基线，见设计 §6）：
  *
  *   npx tsx scripts/curator-perfect.ts --run <id>
  *
@@ -29,6 +29,8 @@ const SKELETONS: Record<string, string[]> = {
   'x_zuoren': ['<ent>', '你做人真的可以'],
   'tianbusheng_x': ['天不生', '<ent>', '万古如长夜'],
   'x-da-xue-xi': ['<ent>', '大学习'],
+  'yi-yan-su-x': ['已严肃', '<ent>'],
+  'xian-guo-x-zai-tan-wei-lai': ['先过', '<ent>', '再谈未来'],
 }
 
 /** 同文异境对：trigger 落 ctx、response 落 text 的交互 pattern（family → pattern）。 */
@@ -107,7 +109,7 @@ function buildEntries(gold: ReturnType<typeof loadGold>, queries: Query[]): Entr
         matcher: { patterns, constraints },
         lineage_parent: null,
         lineage_mutation: null,
-        notes: 'curator-v1 满分库（金标构建）',
+        notes: 'curator 满分库（金标构建）',
       },
     })
     // hao-ting：好听只走交互词条（lex 收好听会让音乐负例 FP）
@@ -134,7 +136,7 @@ function buildEntries(gold: ReturnType<typeof loadGold>, queries: Query[]): Entr
           matcher: { patterns: [{ kind: 'interaction', ...extra.interaction }], constraints: {} },
           lineage_parent: null,
           lineage_mutation: null,
-          notes: 'curator-v1 满分库（金标构建，语境形）',
+          notes: 'curator 满分库（金标构建，语境形）',
         },
       })
     }

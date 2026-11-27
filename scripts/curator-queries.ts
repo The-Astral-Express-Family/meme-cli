@@ -7,7 +7,8 @@
  */
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { BENCH_ROOT, QUERIES_FILE, loadGold, readJsonl, positiveContains, negativeViolations } from './curator-lib.ts'
+import { BENCH_ROOT, QUERIES_FILE, SEED_FILE, loadGold, readJsonl, positiveContains, negativeViolations } from './curator-lib.ts'
+import { scanForbidden } from './curator-seed.ts'
 
 export interface Query {
   query_id: string
@@ -70,6 +71,18 @@ export function checkQueries(path = QUERIES_FILE): boolean {
   const err = (m: string) => errors.push(m)
   const warn = (m: string) => warnings.push(m)
 
+  const seeds = readJsonl<Record<string, unknown>>(SEED_FILE)
+  const seedCids = new Set<string>()
+  for (const [i, s] of seeds.entries()) {
+    try { scanForbidden(s) } catch (e) { err(`seed:${i + 1}: ${(e as Error).message}`) }
+    const cid = String(s.cid ?? '')
+    if (!cid) err(`seed:${i + 1}: 缺 cid`)
+    else if (seedCids.has(cid)) err(`seed:${i + 1}: 重复 cid ${cid}`)
+    else seedCids.add(cid)
+  }
+  for (const cid of gold.byCid.keys()) if (!seedCids.has(cid)) err(`金标候选 ${cid} 缺种子行`)
+  for (const cid of seedCids) if (!gold.byCid.has(cid)) err(`种子候选 ${cid} 缺金标`)
+
   const seen = new Map<string, Query>()
   const perFamily = new Map<string, { pos: number; neg: number; hard: number; queries: Query[] }>()
   const noiseCoverage = new Map<string, number>()
@@ -85,7 +98,7 @@ export function checkQueries(path = QUERIES_FILE): boolean {
       if (!q.from_candidate) err(`${tag}: 正例缺 from_candidate`)
       else {
         const info = gold.byCid.get(q.from_candidate)
-        if (!info) err(`${tag}: from_candidate 不在 72 候选内 ${q.from_candidate}`)
+        if (!info) err(`${tag}: from_candidate 不在金标候选内 ${q.from_candidate}`)
         else if (q.expect.family && !info.families.includes(q.expect.family)) {
           err(`${tag}: from_candidate ${q.from_candidate} 属 [${info.families.join(',')}] ≠ expect.family ${q.expect.family}`)
         }
@@ -111,7 +124,7 @@ export function checkQueries(path = QUERIES_FILE): boolean {
       }
       if (q.from_candidate) {
         const info = gold.byCid.get(q.from_candidate)
-        if (!info) err(`${tag}: from_candidate 不在 72 候选内 ${q.from_candidate}`)
+        if (!info) err(`${tag}: from_candidate 不在金标候选内 ${q.from_candidate}`)
         else if (info.verdict === 'not-meme') {
           // 噪音候选的负例（含家族负例取材于噪音候选的情况）：计入该候选的噪音覆盖
           noiseCoverage.set(q.from_candidate, (noiseCoverage.get(q.from_candidate) ?? 0) + 1)

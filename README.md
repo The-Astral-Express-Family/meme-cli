@@ -155,7 +155,7 @@ npm test                # 离线测试（假 fetcher + 假嵌入器 + 强制词�
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
-npx tsx scripts/curator-queries.ts check   # curator-v1 查询集机械校验
+npx tsx scripts/curator-queries.ts check   # curator-v1 查询集机械校验；CURATOR_BENCH_ROOT/CURATOR_GOLD_DIR 可切换 curator-v2
 npx tsx scripts/curator-run.ts init|judge|verify --run-id R   # 策展题 run：建库/judge/重跑一致性
 npx tsx scripts/curator-score.ts --run R    # 策展题评分（逐题 P/R/F1 + subtask；--ablation 消融）
 npx tsx scripts/db-stats.ts        # 库存监控：表大小/WAL/freelist/轮次

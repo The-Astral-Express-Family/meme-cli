@@ -1,0 +1,86 @@
+{
+  "dataset_id": "curator-v2",
+  "design": "docs/benchmark-v5-curator.md",
+  "gold_source": "benchmarks/candidate-judgment-v5/labels.jsonl",
+  "labels_revision": "2026-11-27-surf-r26-r28-user-reviewed-r2",
+  "source": {
+    "type": "bilibili-surf",
+    "rounds": [
+      26,
+      27,
+      28
+    ],
+    "new_videos": 84,
+    "new_comments": 8416,
+    "candidate_pool_before": 14081,
+    "candidate_pool_after": 20149
+  },
+  "query_count": 249,
+  "positive_count": 39,
+  "negative_count": 210,
+  "family_count": 13,
+  "noise_candidate_count": 79,
+  "channels": {
+    "phrase": 240,
+    "conditional": 2,
+    "interaction": 7
+  },
+  "seed": {
+    "case_count": 82,
+    "row_count": 82,
+    "note": "candidate-judgment-v5 一对一导出；无金标字段"
+  },
+  "excluded_from_scoring": {
+    "count": 3,
+    "reason": "操作员判定为真实梗但证据不足（暂缓/留观）：既不进家族集，也不进噪音集——标 not-meme 会让正确识别它的答题 agent 在 noise_pass 上被误扣。留在生产候选池继续观察，下一轮 surf 若补足证据再入版本。",
+    "rows": [
+      {
+        "source_cid": "c_67331",
+        "head": "豪猫",
+        "reason": "操作员：是“好猫”的变体，暂缓。"
+      },
+      {
+        "source_cid": "c_79204",
+        "head": "儿童节金曲",
+        "reason": "操作员：“<X>节金曲”是真实梗，但仅 1 视频源，留观。"
+      },
+      {
+        "source_cid": "c_82428",
+        "head": "<X>我记下了",
+        "reason": "操作员：“<X>我记下了”是真实梗，但仅 1 视频源，留观。"
+      }
+    ]
+  },
+  "hashes": {
+    "queries.jsonl": "6ca22e53e5c48324d510b94cc29fa5d02eaa0c0994e37fcd397c2ed5ef0af351",
+    "seed/candidates.jsonl": "19d0fa3e819f52cd7a439cd81f5206935b18b03138f6612236332fecd846d21c",
+    "agent-prompt.md": "388c1e914cfdfe6225cbee20a11f801ef29778a30326a096b334117bf9d7eacf",
+    "../candidate-judgment-v5/labels.jsonl": "db869670d33b05ed6801a31653af3ef4a6144f8c06f36c16c1a8c8b73e6b8eb5",
+    "../candidate-judgment-v5/cases.jsonl": "e75a8cca134c7f8d55599be77f10185d0cdebff7d635ffd15c8bdcf490a8c050"
+  },
+  "skipped_existing_families": [
+    "yi-qi-feng-fa",
+    "beng",
+    "ni-tai-xingan",
+    "x_be_like"
+  ],
+  "baselines": {
+    "empty": {
+      "P": 0,
+      "R": 0,
+      "F1": 0,
+      "family_pass": "0/13",
+      "noise_pass": "79/79"
+    },
+    "perfect": {
+      "P": 1,
+      "R": 1,
+      "F1": 1,
+      "family_pass": "13/13",
+      "noise_pass": "79/79",
+      "entries": 13,
+      "note": "13 词条全部 wrapper add + backtest passed；empty/perfect verify 均逐字节一致"
+    }
+  },
+  "created_at": "2026-11-27"
+}

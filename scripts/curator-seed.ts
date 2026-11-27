@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { connect } from '../src/db.ts'
-import { SEED_FILE, V4_DIR, SEED_FIELDS, FORBIDDEN_KEYS } from './curator-lib.ts'
+import { SEED_FILE, V4_DIR, SEED_FIELDS, FORBIDDEN_KEYS, loadGold, readJsonl } from './curator-lib.ts'
 
 interface V4Case {
   case_id: string
@@ -17,7 +17,7 @@ interface V4Case {
   state: string
   videos: number
   ups: number
-  evidence: Array<{ text: string; aid: number; rpid: number; mid: number; is_chain: boolean }>
+  evidence: Array<{ text: string; aid: number; rpid: number; mid: number; is_chain: boolean; is_reply?: boolean; root?: number; parent?: number; ctime?: number }>
 }
 
 export interface SeedCandidate {
@@ -42,7 +42,7 @@ export function toSeed(c: V4Case): SeedCandidate {
     videos: c.videos,
     ups: c.ups,
     evidence_usages: c.evidence.slice(0, 40).map((e) => ({
-      text: e.text, aid: e.aid, rpid: e.rpid, root: 0, parent: 0, mid: e.mid, ctime: 0, chain: !!e.is_chain,
+      text: e.text, aid: e.aid, rpid: e.rpid, root: e.root ?? 0, parent: e.parent ?? 0, mid: e.mid, ctime: e.ctime ?? 0, chain: !!e.is_chain,
     })),
   }
   return out
@@ -61,14 +61,25 @@ export function scanForbidden(obj: Record<string, unknown>): void {
 
 /** 导出 seed/candidates.jsonl（入库产物，可复现）。
  *
- * v4 的 72 条 case 里有两条（cjv4-071「每日大学习」/ cjv4-072「325」）共用同一候选
- * c_70855、同一证据——candidates 表以 cid 为主键，一候选一行，故按首条 case 建行
- * （head=每日大学习），另一 case 的信息只存在于金标侧。
+ * cases/labels 先做一一校验；同一 cid 多条 case（如 v4 的 c_70855）按首条建种子行，
+ * 其余家族信息只保留在金标侧。
  */
 export function exportSeed(): void {
   const cases = readFileSync(`${V4_DIR}/cases.jsonl`, 'utf8').split('\n').filter((l) => l.trim())
     .map((l) => JSON.parse(l) as V4Case)
-  if (cases.length !== 72) throw new Error(`v4 cases 应为 72 条，实际 ${cases.length}`)
+  if (!cases.length) throw new Error('cases.jsonl 不能为空')
+  const labels = readJsonl<{ case_id: string; source_cid: string }>(`${V4_DIR}/labels.jsonl`)
+  if (cases.length !== labels.length) throw new Error(`cases/labels 条数不一致：${cases.length}/${labels.length}`)
+  const caseById = new Map(cases.map((c) => [c.case_id, c]))
+  for (const l of labels) {
+    const c = caseById.get(l.case_id)
+    if (!c) throw new Error(`label ${l.case_id} 缺对应 case`)
+    if (c.source_cid !== l.source_cid) throw new Error(`label ${l.case_id} cid ${l.source_cid} ≠ case ${c.source_cid}`)
+  }
+  const gold = loadGold()
+  const caseCids = new Set(cases.map((c) => c.source_cid))
+  for (const cid of gold.byCid.keys()) if (!caseCids.has(cid)) throw new Error(`金标候选 ${cid} 缺 case`)
+  for (const cid of caseCids) if (!gold.byCid.has(cid)) throw new Error(`case 候选 ${cid} 缺金标`)
   const seen = new Map<string, number>()
   const kept: V4Case[] = []
   for (const c of cases) {
