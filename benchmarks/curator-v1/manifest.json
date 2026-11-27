@@ -20,7 +20,7 @@
   "hashes": {
     "queries.jsonl": "c87c82a748d3ce6c94762befaeb812b2820b0416cf07fa5ba66b1fa347feea88",
     "seed/candidates.jsonl": "20c55fe61a088ab955b243ae10618c6a0c3b734d08522cc692b549a8dfdd07e4",
-    "agent-prompt.md": "002a2c88703c90f7019daece2494a3669c408a45a20f403031da89a3f5fb6a4e"
+    "agent-prompt.md": "5650366f0d90c5da918c7fe28ff70ee05d609be96b79deb50b93a017aa7cf856"
   },
   "authorship": {
     "writers": {

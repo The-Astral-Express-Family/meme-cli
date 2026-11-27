@@ -272,7 +272,8 @@ function cmdAblation(): void {
         const s = scoreRun(e.name, policy, balance)
         variants[policy][balance] = {
           precision: s.matrix.precision, recall: s.matrix.recall, f1: s.matrix.f1,
-          tp: s.matrix.tp, fp: s.matrix.fp * (balance === 'neg2x' ? 2 : 1), fn: s.matrix.fn, tn: s.matrix.tn * (balance === 'neg2x' ? 2 : 1),
+          // computeScore 已按 negW 缩放过 fp/tn，这里不能再乘一次
+          tp: s.matrix.tp, fp: s.matrix.fp, fn: s.matrix.fn, tn: s.matrix.tn,
           family_pass: `${s.family_pass.passed}/${s.family_pass.total}`,
           noise_pass: `${s.noise_pass.passed}/${s.noise_pass.total}`,
         }
@@ -283,7 +284,9 @@ function cmdAblation(): void {
   const rankAfull = rankingOf(rows, 'family', 'full')
   const rankBfull = rankingOf(rows, 'any', 'full')
   const rankAneg = rankingOf(rows, 'family', 'neg2x')
-  const maxGapFull = Math.max(...rows.map((r) => Math.abs(r.variants.family.full.f1 - r.variants.any.full.f1)))
+  const maxGapFull = rows.length
+    ? Math.max(...rows.map((r) => Math.abs(r.variants.family.full.f1 - r.variants.any.full.f1)))
+    : 0
   // 自检：空库/满分库在两口径下必须一致
   const selfCheck: Record<string, string> = {}
   for (const base of ['empty', 'perfect']) {
@@ -295,9 +298,14 @@ function cmdAblation(): void {
       ? 'ok：两口径一致'
       : `FAIL：两口径不一致（A f1=${a.f1} B f1=${b.f1} family_pass ${a.family_pass} vs ${b.family_pass}）`
   }
-  const conclusion = sameOrder(rankAfull, rankBfull) && maxGapFull < 0.05
-    ? 'relax-any：排序一致且分差 <5 个百分点，归属可考虑放宽（policy=any）'
-    : 'keep-family：归属必要（B 口径改变排序或分差显著），保留 family 归属'
+  // 只有基线时不出结论：A/B 只在"正例被错误家族命中"时分叉，空库（无词条）与
+  // 满分库（零误配）必然同分，ΔF1=0 是构造结果，不是"归属可放宽"的证据（设计 §8.4）。
+  const nonBaseline = rows.filter((r) => r.model !== 'baseline' && r.run_id !== 'empty' && r.run_id !== 'perfect')
+  const conclusion = nonBaseline.length === 0
+    ? 'insufficient_runs：只有基线，A/B 在两端点上必然同分，不能据此判断归属是否必要'
+    : sameOrder(rankAfull, rankBfull) && maxGapFull < 0.05
+      ? 'relax-any：排序一致且分差 <5 个百分点，归属可考虑放宽（policy=any）'
+      : 'keep-family：归属必要（B 口径改变排序或分差显著），保留 family 归属'
   const out = {
     generated_at: new Date().toISOString(),
     note: 'A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。',
@@ -311,6 +319,7 @@ function cmdAblation(): void {
       max_f1_gap_A_vs_B_full: Math.round(maxGapFull * 10000) / 10000,
     },
     self_check: selfCheck,
+    non_baseline_runs: nonBaseline.length,
     conclusion,
   }
   const file = 'benchmarks/curator-v1/ablation.json'

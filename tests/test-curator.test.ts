@@ -1,9 +1,12 @@
 /** curator-v1 scorer 纯逻辑测试：判定矩阵 / 归属 / subtask 指标 / 原因标签 / 消融参数。
  * 全部合成数据，不依赖 queries.jsonl 与 run 产物。 */
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { computeScore, type LookupRow, type Query } from '../scripts/curator-score.ts'
-import { buildAttribution, containsForm, negativeViolations, positiveContains, type GoldData, type LabelRow } from '../scripts/curator-lib.ts'
+import { buildAttribution, containsForm, negativeViolations, parseTranscriptLinks, positiveContains, type GoldData, type LabelRow } from '../scripts/curator-lib.ts'
 import { connect } from '../src/db.ts'
 
 function labelRow(cid: string, family: string | null, verdict: LabelRow['candidate_verdict'], head: string | null, forms: string[]): LabelRow {
@@ -157,6 +160,34 @@ describe('computeScore 判定', () => {
     expect(neg2x.matrix.fp).toBe(2)
     expect(neg2x.matrix.precision).toBeCloseTo(1 / 3)
     expect(neg2x.matrix.recall).toBeCloseTo(fam.matrix.recall)
+  })
+})
+
+describe('parseTranscriptLinks（transcript 显式 --cid 归属）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'curator-links-'))
+  const file = join(dir, 'transcript.jsonl')
+  const line = (o: unknown) => JSON.stringify(o)
+  writeFileSync(file, [
+    // 同一 cid 两次 add：DB 的 settle 只写第一条，两条都必须在 transcript 里被采信
+    line({ argv: ['add', '--entry-file', 'a.json', '--cid', 'c_1'], exit_code: 0, stdout: '{"id":"m_1","name":"甲"}' }),
+    line({ argv: ['add', '--entry-file', 'b.json', '--cid', 'c_1', '--cid', 'c_2'], exit_code: 0, stdout: '{"id":"m_2"}' }),
+    line({ argv: ['add', '--entry-file', 'c.json', '--cid', 'c_3'], exit_code: 1, stdout: '' }),
+    line({ argv: ['add', '--entry-file', 'd.json', '--cid', 'c_4'], exit_code: 1, stdout: '{"id":"m_x"}', invalid: 'budget-exhausted' }),
+    line({ argv: ['iterate', 'm_1', '--entry-file', 'e.json', '--cid', 'c_9'], exit_code: 0, stdout: '{"id":"m_1"}' }),
+    '{bad json',
+  ].join('\n') + '\n', 'utf8')
+
+  const links = parseTranscriptLinks(file)
+  it('同一 cid 的两次关联都采信，iterate 追加 cid', () => {
+    expect(links.get('m_1')).toEqual(['c_1', 'c_9'])
+    expect(links.get('m_2')).toEqual(['c_1', 'c_2'])
+  })
+  it('跳过失败/ invalid / 坏 JSON 行', () => {
+    expect(links.has('m_x')).toBe(false)
+    expect([...links.keys()].sort()).toEqual(['m_1', 'm_2'])
+  })
+  it('transcript 不存在时返回空表', () => {
+    expect(parseTranscriptLinks(join(dir, 'nope.jsonl')).size).toBe(0)
   })
 })
 
