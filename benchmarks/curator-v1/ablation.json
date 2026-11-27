@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-27T01:11:23.783Z",
+  "generated_at": "2026-11-27T02:09:14.643Z",
   "note": "A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。policy_divergent_queries 是 A/B 判定翻转的题数：它为 0 的 run 对\"归属是否必要\"没有区分力，此时 ΔF1=0 不能当作\"归属可放宽\"的证据。",
   "runs": [
     {
@@ -451,6 +451,198 @@
       }
     },
     {
+      "run_id": "hungerg-r1",
+      "model": "HungerG",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.8837209302325582,
+            "recall": 0.5135135135135135,
+            "f1": 0.6495726495726496,
+            "tp": 38,
+            "fp": 5,
+            "fn": 36,
+            "tn": 185,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 8,
+            "unattributed_hits": 2
+          },
+          "neg2x": {
+            "precision": 0.7916666666666666,
+            "recall": 0.5135135135135135,
+            "f1": 0.6229508196721311,
+            "tp": 38,
+            "fp": 10,
+            "fn": 36,
+            "tn": 370,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 8,
+            "unattributed_hits": 2
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.8837209302325582,
+            "recall": 0.5135135135135135,
+            "f1": 0.6495726495726496,
+            "tp": 38,
+            "fp": 5,
+            "fn": 36,
+            "tn": 185,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 8,
+            "unattributed_hits": 2
+          },
+          "neg2x": {
+            "precision": 0.7916666666666666,
+            "recall": 0.5135135135135135,
+            "f1": 0.6229508196721311,
+            "tp": 38,
+            "fp": 10,
+            "fn": 36,
+            "tn": 370,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 8,
+            "unattributed_hits": 2
+          }
+        }
+      }
+    },
+    {
+      "run_id": "hungerg-r2",
+      "model": "HungerG",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.84,
+            "recall": 0.5675675675675675,
+            "f1": 0.6774193548387097,
+            "tp": 42,
+            "fp": 8,
+            "fn": 32,
+            "tn": 182,
+            "family_pass": "12/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 3
+          },
+          "neg2x": {
+            "precision": 0.7241379310344828,
+            "recall": 0.5675675675675675,
+            "f1": 0.6363636363636365,
+            "tp": 42,
+            "fp": 16,
+            "fn": 32,
+            "tn": 364,
+            "family_pass": "12/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 3
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.84,
+            "recall": 0.5675675675675675,
+            "f1": 0.6774193548387097,
+            "tp": 42,
+            "fp": 8,
+            "fn": 32,
+            "tn": 182,
+            "family_pass": "12/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 3
+          },
+          "neg2x": {
+            "precision": 0.7241379310344828,
+            "recall": 0.5675675675675675,
+            "f1": 0.6363636363636365,
+            "tp": 42,
+            "fp": 16,
+            "fn": 32,
+            "tn": 364,
+            "family_pass": "12/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 3
+          }
+        }
+      }
+    },
+    {
+      "run_id": "hungerg-r3",
+      "model": "HungerG",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.8571428571428571,
+            "recall": 0.4864864864864865,
+            "f1": 0.6206896551724138,
+            "tp": 36,
+            "fp": 6,
+            "fn": 38,
+            "tn": 184,
+            "family_pass": "10/29",
+            "noise_pass": "44/45",
+            "extra_hits": 2,
+            "unattributed_hits": 2
+          },
+          "neg2x": {
+            "precision": 0.75,
+            "recall": 0.4864864864864865,
+            "f1": 0.5901639344262296,
+            "tp": 36,
+            "fp": 12,
+            "fn": 38,
+            "tn": 368,
+            "family_pass": "10/29",
+            "noise_pass": "44/45",
+            "extra_hits": 2,
+            "unattributed_hits": 2
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.8571428571428571,
+            "recall": 0.4864864864864865,
+            "f1": 0.6206896551724138,
+            "tp": 36,
+            "fp": 6,
+            "fn": 38,
+            "tn": 184,
+            "family_pass": "10/29",
+            "noise_pass": "44/45",
+            "extra_hits": 2,
+            "unattributed_hits": 2
+          },
+          "neg2x": {
+            "precision": 0.75,
+            "recall": 0.4864864864864865,
+            "f1": 0.5901639344262296,
+            "tp": 36,
+            "fp": 12,
+            "fn": 38,
+            "tn": 368,
+            "family_pass": "10/29",
+            "noise_pass": "44/45",
+            "extra_hits": 2,
+            "unattributed_hits": 2
+          }
+        }
+      }
+    },
+    {
       "run_id": "perfect",
       "model": "baseline",
       "finish_reason": "baseline",
@@ -520,7 +712,10 @@
       "perfect",
       "ds41f-r3",
       "ds41f-r2",
+      "hungerg-r2",
+      "hungerg-r1",
       "glm53-r2",
+      "hungerg-r3",
       "glm53-r3",
       "glm53-r1",
       "ds41f-r1",
@@ -530,7 +725,10 @@
       "perfect",
       "ds41f-r3",
       "ds41f-r2",
+      "hungerg-r2",
+      "hungerg-r1",
       "glm53-r2",
+      "hungerg-r3",
       "glm53-r3",
       "glm53-r1",
       "ds41f-r1",
@@ -540,7 +738,10 @@
       "perfect",
       "ds41f-r3",
       "ds41f-r2",
+      "hungerg-r2",
+      "hungerg-r1",
       "glm53-r2",
+      "hungerg-r3",
       "glm53-r3",
       "glm53-r1",
       "ds41f-r1",
@@ -554,7 +755,7 @@
     "empty": "ok：两口径一致",
     "perfect": "ok：两口径一致"
   },
-  "non_baseline_runs": 6,
+  "non_baseline_runs": 9,
   "runs_with_policy_divergence": 0,
   "conclusion": "insufficient_signal：所有非基线 run 在 A/B 下逐题判定完全相同（没有\"正例只被错误家族命中\"的题），ΔF1=0 不能区分归属必要与过严"
 }
