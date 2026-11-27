@@ -155,13 +155,13 @@ npm test                # 离线测试（假 fetcher + 假嵌入器 + 强制词�
 npm run typecheck
 npm run build
 npx tsx scripts/replay.ts          # 真实湖回放：量化发现质量（召回/榜首质量/触发数）
-npx tsx scripts/benchmark-score.ts # candidate-judgment v4（72 题）评分
-npx tsx scripts/oj-run.ts          # OJ lookup 行为基准：系统基线（benchmarks/oj-lookup-v1）
-npx tsx scripts/oj-score.ts        # OJ 评分（系统行与模型作答同 schema）
+npx tsx scripts/curator-queries.ts check   # curator-v1 查询集机械校验
+npx tsx scripts/curator-run.ts init|judge|verify --run-id R   # 策展题 run：建库/judge/重跑一致性
+npx tsx scripts/curator-score.ts --run R    # 策展题评分（逐题 P/R/F1 + subtask；--ablation 消融）
 npx tsx scripts/db-stats.ts        # 库存监控：表大小/WAL/freelist/轮次
 npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建（先自动一致性备份）
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
-# 操作判定手册见 docs/meme-judgment-guide.md（benchmark prompt 由 scripts/bench-prompt.ts 引用它生成）；文献依据见 docs/references.md
+# 操作判定手册见 docs/meme-judgment-guide.md；策展题基准见 benchmarks/curator-v1/README.md；文献依据见 docs/references.md
 ```
 
 ## 已知边界

@@ -47,3 +47,7 @@ npx tsx scripts/curator-score.ts --ablation         # 全部 run × 口径 × �
 ## 出题与复核
 
 6 个出题子代理（5 组家族 + 1 组 45 条噪音负例）按 `authoring/writer-spec.md` 出题，1 个复核子代理独立机械校验 + 真 matcher 满分库模拟后交付。模型与 prompt 版本记录在 `manifest.json`。答辩侧红线：答题 agent 不可见 `queries.jsonl`、v4 金标、`benchmarks/` 其余内容与 `~/.meme`。
+
+## Related work 与首创性说明
+
+"agent 构建持久产物 → 隐藏查询做行为测试"的评测范式有各自的先例：SWE-bench/Commit0 用隐藏单元测试验证 agent 产出的代码；正则合成基准（RegexGym、RegexCompBench）按隐藏正/负例串为 agent 生成的单条规则打分，并使用突变式对抗硬负例；τ-bench/AppWorld 检查 agent 操作后数据库的终态并惩罚误伤；ACE 让"策展者"以增量操作维护上下文手册但按下游任务成功率计分；YARA/Sigma 规则自动生成与审核政策归纳评规则质量而非策展过程；记忆类基准（LongMemEval、MemoryAgentBench）考写入与遗忘但以问答准确率计分。据我们所知，把**多家族模糊语义匹配库的 CLI 策展（含可逆 ban 与误 ban 惩罚）+ 对抗硬负例 + 200-400 条隐藏查询的 P/R/F1 行为测试 + 按家族与噪音候选分解的子任务归因**组合为一个 agent 基准，尚无先例——范式有渊源，组合无先例，措辞上不声称首创评测范式。

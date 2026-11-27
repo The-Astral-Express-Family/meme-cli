@@ -238,3 +238,17 @@ dsh-qqbot 把非 @ 消息只写进内存历史缓冲（上限 10 条、回复后
 - **回测去污染**：候选用例按 canonical 正例口径（name/实际 lex terms/skeleton 槽位形状；可选别名匹配后才含 aliases）筛选，只保留命中完整形的用例；直接洗牌 `UsageSample` 保留 pair/parent；空集要求 `--holdout-text`。已知正例、留出文本与会话上下文都排除出负例采样；交互梗无有效触发上下文不进分母。纯向量词条恢复 matcher 必须提供独立证据或显式留出，显式 `--force` 仍降级纯向量并审计 `matcher_evidence_forced`。
 - **aliases**：默认仅元数据/解析/重名/家族收口；`--match-aliases` 才合并非槽位 aliases，交互 aliases 不绕过上下文。
 - **运维语义**：`surf --no-fetch` 不联网但仍推进一轮；焦点查看与分页统一使用只读 `check`，噪音治理统一使用顶层 `ban`/`allow`。`benchmarks/` 标签禁入运行时。
+
+## 十一、curator-v1 策展题的首创性调研（2026-11-27，后台调研 agent 核实链接）
+
+结论：**范式有渊源，组合无先例**。"agent 构建持久产物 → 隐藏查询行为测试"各单点均有先例：
+
+- **正则合成（结构最近邻）**：RegexGym https://github.com/ctokx/regexgym （隐藏 holdout 正负例执行打分 + 突变式硬负例）；RegexCompBench https://arxiv.org/abs/2503.20579 ；A-CEGIS（反例反馈归纳）https://arxiv.org/abs/2609.02892
+- **隐藏测试验证 agent 产物**：SWE-bench https://arxiv.org/abs/2310.06770 ；Commit0 https://arxiv.org/abs/2412.01769 ；MLE-bench https://arxiv.org/abs/2410.07095
+- **持久库状态被评分 + 误伤惩罚**：τ-bench https://arxiv.org/abs/2406.12045 ；AppWorld（collateral damage）https://arxiv.org/abs/2407.18901
+- **对抗硬负例**：BFCL irrelevance https://gorilla.cs.berkeley.edu/blogs/8_berkeley_function_calling_leaderboard.html
+- **策展式增量维护**：ACE（Curator 角色，add/update/remove）https://arxiv.org/abs/2510.04618 ；MemoryAgentBench（selective forgetting）https://arxiv.org/abs/2507.05257 ；LongMemEval https://arxiv.org/abs/2410.10813
+- **规则/检测器自动生成**：CheckerBench https://arxiv.org/abs/2610.07557 ；AutoPYara（家族聚类）https://arxiv.org/abs/2611.08608
+- **梗/中文网络语基准（全部是理解评测，无策展）**：CHEER https://arxiv.org/abs/2505.15071 ；MemeBench https://arxiv.org/abs/2607.27798
+
+组合层面的未见先例：数据型语义匹配库作为被评测产物；ban 作为一等可评分决策（可逆、误 ban 受罚）；多家族 + 按噪音候选归因的子任务计分；硬负例与误 ban 惩罚同时成立。完整调研报告含检索渠道与排除理由。

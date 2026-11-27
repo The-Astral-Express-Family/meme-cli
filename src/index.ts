@@ -20,9 +20,9 @@ export const name = 'dsh-meme'
 export const inject = ['skills', 'shellEnv', 'agents']
 
 /**
- * 技能手册全文。同时是 benchmark prompt 的 §2 来源（scripts/bench-prompt.ts 引用）：
- * 改这里会改变候选判定基准的题目面——示例不能用 benchmarks/ 金标里的梗
- * （泄题），新增示例前先对照 labels.jsonl。
+ * 技能手册全文。它是答题 agent 操作 meme CLI 的说明面：
+ * 改这里会改变 curator-v1 策展题被测 agent 的行为面——示例不能用 benchmarks/
+ * 金标里的梗（泄题），新增示例前先对照 candidate-judgment-v4/labels.jsonl。
  */
 export const MANUAL = `# meme —— 梗百科（CLI）
 
