@@ -23,17 +23,16 @@ interface Query {
   tags: string[]
 }
 
-/** 槽位 head 的骨架 token（family → tokens）。未列出的槽位家族只用 lex（宽骨架会吞别家负例）。 */
+/** 槽位 head 的骨架 token（family → tokens）。未列出的槽位家族只用 lex（宽骨架会吞别家负例）。
+ * x_be_like 不设骨架：normalizeSpanned 会把 ≥3 字母拉丁词归一成 <ent>，"be like" 字面量无处着落（死模式）。 */
 const SKELETONS: Record<string, string[]> = {
   'x_zuoren': ['<ent>', '你做人真的可以'],
-  'x_be_like': ['<ent>', 'be like'],
   'tianbusheng_x': ['天不生', '<ent>', '万古如长夜'],
   'x-da-xue-xi': ['<ent>', '大学习'],
 }
 
 /** 同文异境对：trigger 落 ctx、response 落 text 的交互 pattern（family → pattern）。 */
 const INTERACTIONS: Record<string, { trigger_terms: string[]; response_terms: string[] }> = {
-  'jingjing': { trigger_terms: ['鲸鲸'], response_terms: ['在的', '冒头'] },
   'laigushi': { trigger_terms: ['来股市'], response_terms: ['开户'] },
   'x_zuoren': { trigger_terms: ['你做人真的可以'], response_terms: ['敢放'] },
   'hao-ting': { trigger_terms: ['豪庭'], response_terms: ['好听'] },
@@ -63,14 +62,23 @@ function buildEntries(gold: ReturnType<typeof loadGold>, queries: Query[]): Entr
     const label = gold.rows.find((r) => r.family_id === family && r.candidate_verdict !== 'not-meme')
       ?? gold.rows.find((r) => r.family_id === family)!
     const name = label.canonical_head ?? forms[0]
-    const aliases = forms.filter((f) => f !== name)
-    const nonSlot = forms.filter((f) => !f.includes('<'))
+    // 别名排除：词条名自身、被 EXTRA_ENTRIES 单独建词条的形式（防 MEME_DUPLICATE）、
+    // 以及跨家族共享形式（c_70855 的「每日325大学习」同属 x-da-xue-xi 与 325-event，
+    // 留在 aliases 会干扰归属收窄，把词条判成 cross-family）
+    const extraNames = Object.values(EXTRA_ENTRIES).map((e) => e.name)
+    const sharedForms = new Set<string>()
+    for (const [f, fs] of gold.familyForms) {
+      if (f === family) continue
+      for (const form of fs) if (forms.includes(form)) sharedForms.add(form)
+    }
+    const aliases = forms.filter((f) => f !== name && !extraNames.includes(f) && !sharedForms.has(f))
+    const nonSlot = forms.filter((f) => !f.includes('<') && !extraNames.includes(f))
     const cids = gold.familyCids.get(family) ?? []
     const holdouts = queries.filter((q) => q.expect.hit && q.expect.family === family).slice(0, 3).map((q) => q.text)
     const examples = queries.filter((q) => q.expect.hit && q.expect.family === family).slice(0, 2).map((q) => q.text)
     const baseCard = { gist: `${family} 家族：${name}`, usage: [], taboo: null, register: null, aggression: null }
     const patterns: Array<Record<string, unknown>> = []
-    if (nonSlot.length && family !== 'hao-ting') patterns.push({ kind: 'lex', terms: nonSlot })
+    if (nonSlot.length) patterns.push({ kind: 'lex', terms: nonSlot })
     const skel = SKELETONS[family]
     if (skel) patterns.push({ kind: 'skeleton', tokens: skel })
     const inter = INTERACTIONS[family]

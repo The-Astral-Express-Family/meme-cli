@@ -181,8 +181,39 @@ export interface DbAttribution {
   bannedFamilies: Set<string>
 }
 
-/** 从冻结库构建词条归属表。gold：v4 金标。 */
-export function buildAttribution(db: DatabaseSync, gold: GoldData): DbAttribution {
+/** 从 run transcript 解析显式 --cid 关联（meme_id → cids）。
+ *
+ * settleCandidates 会跳过已 inducted 的候选（同一候选第二次 --cid 不写 related），
+ * 但操作员的显式关联是 §4.1 归属的第一依据，transcript 里有完整留痕。
+ */
+export function parseTranscriptLinks(transcriptPath: string): Map<string, string[]> {
+  const links = new Map<string, string[]>()
+  if (!existsSync(transcriptPath)) return links
+  for (const line of readFileSync(transcriptPath, 'utf8').split('\n').filter((l) => l.trim())) {
+    let e: { argv?: string[]; exit_code?: number; stdout?: string; invalid?: string }
+    try { e = JSON.parse(line) } catch { continue }
+    if (e.invalid || (e.exit_code ?? 1) !== 0) continue
+    const argv = e.argv ?? []
+    const cmd = argv[0]
+    if (cmd !== 'add' && cmd !== 'iterate') continue
+    const cids: string[] = []
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === '--cid' && argv[i + 1]) cids.push(argv[++i])
+    }
+    if (!cids.length) continue
+    let payload: { id?: string } = {}
+    try { payload = JSON.parse((e.stdout ?? '').trim().split('\n').pop() ?? '{}') } catch { continue }
+    const memeId = payload.id ?? (cmd === 'iterate' ? argv[1] : undefined)
+    if (!memeId || !/^m_\d+$/.test(memeId)) continue
+    const arr = links.get(memeId) ?? []
+    for (const c of cids) if (!arr.includes(c)) arr.push(c)
+    links.set(memeId, arr)
+  }
+  return links
+}
+
+/** 从冻结库构建词条归属表。gold：v4 金标；explicitLinks：transcript 解析的显式 --cid（可选）。 */
+export function buildAttribution(db: DatabaseSync, gold: GoldData, explicitLinks?: Map<string, string[]>): DbAttribution {
   const candRows = db.prepare('SELECT cid, head, state, reject_reason, related FROM candidates').all() as Array<{
     cid: string; head: string; state: string; reject_reason: string | null; related: string
   }>
@@ -196,6 +227,13 @@ export function buildAttribution(db: DatabaseSync, gold: GoldData): DbAttributio
       const arr = relatedCids.get(r.id) ?? []
       if (!arr.includes(c.cid)) arr.push(c.cid)
       relatedCids.set(r.id, arr)
+    }
+  }
+  if (explicitLinks) {
+    for (const [memeId, cids] of explicitLinks) {
+      const arr = relatedCids.get(memeId) ?? []
+      for (const c of cids) if (!arr.includes(c)) arr.push(c)
+      if (arr.length) relatedCids.set(memeId, arr)
     }
   }
   // 名字兜底：词条名与任一有家族的候选 head 归一化后字面相等

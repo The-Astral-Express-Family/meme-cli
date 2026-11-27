@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { connect } from '../src/db.ts'
 import { lookup } from '../src/match/pipeline.ts'
 import {
-  BENCH_ROOT, QUERIES_FILE, SEED_FILE, RUNS_DIR, AGENT_PROMPT_FILE, readJsonl, sha256File, buildAttribution, loadGold, jsonl,
+  BENCH_ROOT, QUERIES_FILE, SEED_FILE, RUNS_DIR, AGENT_PROMPT_FILE, readJsonl, sha256File, buildAttribution, parseTranscriptLinks, loadGold, jsonl,
 } from './curator-lib.ts'
 import { seedRunDb } from './curator-seed.ts'
 
@@ -106,10 +106,11 @@ async function doJudge(id: string): Promise<{ rows: LookupRow[]; outFile: string
 
   const db = connect(snap)
   const gold = loadGold()
-  const attr = buildAttribution(db, gold)
+  const attr = buildAttribution(db, gold, parseTranscriptLinks(`${dir}/transcript.jsonl`))
   const rows: LookupRow[] = []
   for (const q of queries) {
-    const hits = await lookup(db, q.text, q.ctx ?? null)
+    // 与 CLI 同语义：ctxLines = [...ctx, text]（交互梗匹配对象是末行，见 commands.ts runLookup）
+    const hits = await lookup(db, q.text, [...(q.ctx ?? []), q.text])
     const byMeme = new Map<string, typeof hits[number]>()
     for (const h of hits) if (!byMeme.has(h.meme_id)) byMeme.set(h.meme_id, h)
     const out: LookupRow['hits'] = []

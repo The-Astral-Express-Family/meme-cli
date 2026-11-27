@@ -14,7 +14,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { connect } from '../src/db.ts'
-import { QUERIES_FILE, RUNS_DIR, loadGold, readJsonl, buildAttribution } from './curator-lib.ts'
+import { QUERIES_FILE, RUNS_DIR, loadGold, readJsonl, buildAttribution, parseTranscriptLinks } from './curator-lib.ts'
 
 process.env.MEME_EMBED_OFF = '1'
 
@@ -215,7 +215,7 @@ export function scoreRun(runId: string, policy: Policy = 'family', balance: Bala
   const dbPath = `${dir}/db/memes.db`
   if (!existsSync(dbPath)) throw new Error(`${dbPath} 不存在`)
   const db = connect(dbPath)
-  const attr = buildAttribution(db, gold)
+  const attr = buildAttribution(db, gold, parseTranscriptLinks(`${dir}/transcript.jsonl`))
   db.close()
   return computeScore(runId, queries, lookups, gold, attr, policy, balance)
 }
