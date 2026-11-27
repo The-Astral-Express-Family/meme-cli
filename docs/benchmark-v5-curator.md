@@ -4,19 +4,19 @@
 
 ## 1. 是什么
 
-被测 agent 拿到 72 条候选，自己用 `meme add` / `meme ban` 建库；裁判用隐藏查询集跑 `meme lookup`，记 TP/TN/FP/FN。**评的是库的行为，不是 agent 的文字答案。**
+被测 agent 拿到 71 条候选（v4 的 72 条 case 里 `cjv4-071`/`cjv4-072` 共用同一 `cid` 与证据，按一行入库），自己用 `meme add` / `meme ban` 建库；裁判用隐藏查询集跑 `meme lookup`，记 TP/TN/FP/FN。**评的是库的行为，不是 agent 的文字答案。**
 
 题型名「策展题」，id `curator-v1`。不叫 OJ（没有在线判题），不叫 judge（和 v4 判断题分不清）。
 
 ## 2. 三条红线
 
 - **R1** 主分只能来自 Step 3 的 lookup 行为；任何"让 agent 写判断"的产物不得计分。
-- **R2** 查询只引用这 72 条候选与 29 个金标家族；不引入无关 fixture。
+- **R2** 查询只引用这 71 条候选与 29 个金标家族；不引入无关 fixture。
 - **R3** agent 不可见查询集、v4 金标、`benchmarks/`、`~/.meme`。
 
 ## 3. 三步
 
-1. **发题**：建空库并把 72 条候选写进 `candidates` 表（`cid`/`head`/`channel`/`evidence`，与生产 surf 后同形）；给一个固定环境的 `meme` wrapper。预算 200 条命令 / 20 分钟。
+1. **发题**：建空库并把 71 条候选写进 `candidates` 表（`cid`/`head`/`channel`/`evidence`，与生产 surf 后同形）；给一个固定环境的 `meme` wrapper。预算 200 条命令 / 20 分钟。
 2. **策展**：白名单 `add`/`iterate`/`edit`/`ban`/`allow`/`note`/`show`/`search`/`check`/`lookup`；`add` 建议带 `--cid`。逐条记 transcript，结束写 `finish_reason`。
 3. **验收**：冻结库，逐条 `meme lookup`，按 §4 判定。
 
@@ -27,12 +27,12 @@
 - **正例**：命中的词条属于期望家族 → TP，否则 FN。
 - **负例**：任何命中 → FP；未命中 → TN。
 - **额外命中**：正例命中了其他家族，单列，不进主矩阵。
-- **归属**：`--cid` 关联优先；没有关联时用词条名与候选 `head` 字面相等兜底（72 条里 24 条是截断词头，写完整形会让 `--cid` 之外的自动收口失效）；都不中 → 未归属，命中只记「额外」。
+- **归属**：`--cid` 关联优先。采信 **transcript 里的显式 `--cid`**，不只读 DB 的 `related`——`settleCandidates` 只给未 `inducted` 的候选写关联，同一候选第二次 `--cid` 不会留下 `related`；`c_70855` 同时支撑 `x-da-xue-xi` 与 `325-event`，两个词条都要显式挂它，只认 DB 会让其中一个家族永远无法归属。没有关联时用词条名与候选 `head` 字面相等兜底（40 条有家族的候选里 24 条 `head` 是截断词头，写完整形会让 `--cid` 之外的自动收口失效）；都不中 → 未归属，命中只记「额外」。
 - **一个词条跨 ≥2 个家族**：该词条命中不计分。防"一个大词条吞掉所有梗"，否则它能拿满分。
 
-报告：P / R / F1、分通道（phrase / formula / interaction / conditional）、额外命中与未归属计数。
+报告：P / R / F1、分通道（phrase / formula / conditional；交互梗对——触发在 `ctx`、回应在 `text`——记在 `conditional`）、额外命中与未归属计数。
 
-### 4.2 辅助指标（含两个 OI 式子任务）
+### 4.2 辅助指标（两个捆绑式子任务）
 
 逐题计分允许偷分：命中几个正例就有分，哪怕该家族硬负例全错。再补两个捆绑口径：
 
@@ -54,7 +54,7 @@
 
 ## 5. 数据与环境
 
-**种子候选**（写入库，agent 可见）：`cid`、`head`、`channel`、`kind_guess`、`videos`、`ups`、`evidence_usages`。禁止写入 `candidate_verdict` / `resolved_verdict` / `family_id` / `canonical_head` / `accepted_canonical_forms` / `rationale`。
+**种子候选**（写入库，agent 可见，71 行）：`cid`、`head`、`channel`、`kind_guess`、`videos`、`ups`、`evidence_usages`。禁止写入 `candidate_verdict` / `resolved_verdict` / `family_id` / `canonical_head` / `accepted_canonical_forms` / `rationale`。
 
 **查询**（对 agent 隐藏）：
 
@@ -63,7 +63,7 @@
  "expect":{"hit":true,"family":"beng"},"from_candidate":"c_58951","tags":["canonical"]}
 ```
 
-- `family` 只能来自 29 个金标家族；**正例必须带 `from_candidate`**（v5.1 的 C 口径要用）。
+- `family` 只能来自 29 个金标家族；**正例必须带 `from_candidate`**（溯源用，并用于机械校验"家族与候选一致"；C 口径已删，不再参与计分）。
 - 覆盖：每家族 ≥5 条（≥2 正例 + ≥3 负例，其中 ≥2 条硬负例）；45 条 `not-meme` 候选各 ≥2 条负例；总量 200–400。
 - 负例里不得含其他真梗表达（否则正确命中会被记成 FP）。
 - 鼓励出题人主动多出困难题 / 混淆题，仓库内的其它文档和注释可能是创意来源，但需要确认金标可通过。
@@ -80,7 +80,7 @@
 ## 6. 验收
 
 - 空库：正例全 FN、负例全 TN（证明查询真在测库）；此时 `family_pass=0/29`、`noise_pass=45/45`——两者必须同时看。
-- 满分库（29 家族按金标写好）：正例全 TP、负例全 TN，`family_pass=29/29`、`noise_pass=45/45`；做不到的硬负例逐条列出。如果发现满分库未满分，说明 a) 题目设计有问题，b) meme cli 的匹配逻辑有问题。都需要排查修复。
+- 满分库（29 家族按金标写好）：正例全 TP、负例全 TN，`family_pass=29/29`、`noise_pass=45/45`；`c_70855` 双家族的两个词条都显式 `--cid` 挂它（归属从 transcript 取，见 §4.1）；做不到的硬负例逐条列出。如果发现满分库未满分，说明 a) 题目设计有问题，b) meme cli 的匹配逻辑有问题。都需要排查修复。
 - 误 add 噪音 → FP 上升；误 ban 真梗 → 对应正例 FN。
 - 种子候选无金标字段（自动扫描）。
 - 查询 `family` 全部在 29 个家族内。
@@ -126,6 +126,7 @@
 - 只读 run 产物，不重跑 lookup、不改库。
 - 自检：两种口径在**满分库**上结果相同（全对）、在**空库**上也相同（全 FN / 全 TN）——差异只应出现在有错配的库上。
 - 子任务指标与 policy 无关这条要守住：`family_pass` / `noise_pass` 的**分组与通过条件固定**，只有"正例算不算命中"随 policy 变。
+- **没有非基线 run 时不出结论**：`conclusion` 记 `insufficient_runs`，只保留 `ranking_stable` 等原始数据。空库（全 FN）与满分库（全对）在 A、B 两口径下**必然**同分，`max ΔF1 = 0` 是构造结果，不能当"归属可放宽"的证据。
 
 ## 9. 版本
 

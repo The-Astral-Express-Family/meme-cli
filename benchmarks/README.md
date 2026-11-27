@@ -6,7 +6,7 @@
 
 设计契约见 [`docs/benchmark-v5-curator.md`](../docs/benchmark-v5-curator.md)。一句话：**被测 agent 拿到候选，自己用 `meme add`/`meme ban` 建库，裁判再用隐藏查询集跑 `meme lookup` 记 TP/TN/FP/FN**。已实现并完成基线验收（空库 family_pass 0/29、满分库 29/29 + 45/45），详见 [`curator-v1/README.md`](curator-v1/README.md)。
 
-红线：主分只能来自库的行为，不能来自 agent 的文字答案；查询集只引用这 72 条候选与 29 个金标家族，不得用无关 fixture。
+红线：主分只能来自库的行为，不能来自 agent 的文字答案；查询集只引用这 71 条候选与 29 个金标家族，不得用无关 fixture。
 
 ## 遗产：candidate-judgment（v5 之前，评的是"判断"，不是"操作"）
 
