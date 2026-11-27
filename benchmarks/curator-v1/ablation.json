@@ -1,11 +1,204 @@
 {
-  "generated_at": "2026-11-27T00:33:57.992Z",
-  "note": "A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。",
+  "generated_at": "2026-11-27T01:11:23.783Z",
+  "note": "A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。policy_divergent_queries 是 A/B 判定翻转的题数：它为 0 的 run 对\"归属是否必要\"没有区分力，此时 ΔF1=0 不能当作\"归属可放宽\"的证据。",
   "runs": [
+    {
+      "run_id": "ds41f-r1",
+      "model": "deepseek-v4.1-flash",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.8076923076923077,
+            "recall": 0.28378378378378377,
+            "f1": 0.42,
+            "tp": 21,
+            "fp": 5,
+            "fn": 53,
+            "tn": 185,
+            "family_pass": "6/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.6774193548387096,
+            "recall": 0.28378378378378377,
+            "f1": 0.4,
+            "tp": 21,
+            "fp": 10,
+            "fn": 53,
+            "tn": 370,
+            "family_pass": "6/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.8076923076923077,
+            "recall": 0.28378378378378377,
+            "f1": 0.42,
+            "tp": 21,
+            "fp": 5,
+            "fn": 53,
+            "tn": 185,
+            "family_pass": "6/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.6774193548387096,
+            "recall": 0.28378378378378377,
+            "f1": 0.4,
+            "tp": 21,
+            "fp": 10,
+            "fn": 53,
+            "tn": 370,
+            "family_pass": "6/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
+    {
+      "run_id": "ds41f-r2",
+      "model": "deepseek-v4.1-flash",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.8431372549019608,
+            "recall": 0.581081081081081,
+            "f1": 0.688,
+            "tp": 43,
+            "fp": 8,
+            "fn": 31,
+            "tn": 182,
+            "family_pass": "11/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.7288135593220338,
+            "recall": 0.581081081081081,
+            "f1": 0.6466165413533834,
+            "tp": 43,
+            "fp": 16,
+            "fn": 31,
+            "tn": 364,
+            "family_pass": "11/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.8431372549019608,
+            "recall": 0.581081081081081,
+            "f1": 0.688,
+            "tp": 43,
+            "fp": 8,
+            "fn": 31,
+            "tn": 182,
+            "family_pass": "11/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.7288135593220338,
+            "recall": 0.581081081081081,
+            "f1": 0.6466165413533834,
+            "tp": 43,
+            "fp": 16,
+            "fn": 31,
+            "tn": 364,
+            "family_pass": "11/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
+    {
+      "run_id": "ds41f-r3",
+      "model": "deepseek-v4.1-flash",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.8571428571428571,
+            "recall": 0.6486486486486487,
+            "f1": 0.7384615384615384,
+            "tp": 48,
+            "fp": 8,
+            "fn": 26,
+            "tn": 182,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.75,
+            "recall": 0.6486486486486487,
+            "f1": 0.6956521739130435,
+            "tp": 48,
+            "fp": 16,
+            "fn": 26,
+            "tn": 364,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.8571428571428571,
+            "recall": 0.6486486486486487,
+            "f1": 0.7384615384615384,
+            "tp": 48,
+            "fp": 8,
+            "fn": 26,
+            "tn": 182,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.75,
+            "recall": 0.6486486486486487,
+            "f1": 0.6956521739130435,
+            "tp": 48,
+            "fp": 16,
+            "fn": 26,
+            "tn": 364,
+            "family_pass": "13/29",
+            "noise_pass": "44/45",
+            "extra_hits": 3,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
     {
       "run_id": "empty",
       "model": "baseline",
       "finish_reason": "baseline",
+      "policy_divergent_queries": 0,
       "variants": {
         "family": {
           "full": {
@@ -17,7 +210,9 @@
             "fn": 74,
             "tn": 190,
             "family_pass": "0/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           },
           "neg2x": {
             "precision": 0,
@@ -26,9 +221,11 @@
             "tp": 0,
             "fp": 0,
             "fn": 74,
-            "tn": 760,
+            "tn": 380,
             "family_pass": "0/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           }
         },
         "any": {
@@ -41,7 +238,9 @@
             "fn": 74,
             "tn": 190,
             "family_pass": "0/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           },
           "neg2x": {
             "precision": 0,
@@ -50,9 +249,203 @@
             "tp": 0,
             "fp": 0,
             "fn": 74,
-            "tn": 760,
+            "tn": 380,
             "family_pass": "0/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
+    {
+      "run_id": "glm53-r1",
+      "model": "GLM-5.3",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.7948717948717948,
+            "recall": 0.4189189189189189,
+            "f1": 0.5486725663716814,
+            "tp": 31,
+            "fp": 8,
+            "fn": 43,
+            "tn": 182,
+            "family_pass": "9/29",
+            "noise_pass": "44/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.6595744680851063,
+            "recall": 0.4189189189189189,
+            "f1": 0.5123966942148761,
+            "tp": 31,
+            "fp": 16,
+            "fn": 43,
+            "tn": 364,
+            "family_pass": "9/29",
+            "noise_pass": "44/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.7948717948717948,
+            "recall": 0.4189189189189189,
+            "f1": 0.5486725663716814,
+            "tp": 31,
+            "fp": 8,
+            "fn": 43,
+            "tn": 182,
+            "family_pass": "9/29",
+            "noise_pass": "44/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.6595744680851063,
+            "recall": 0.4189189189189189,
+            "f1": 0.5123966942148761,
+            "tp": 31,
+            "fp": 16,
+            "fn": 43,
+            "tn": 364,
+            "family_pass": "9/29",
+            "noise_pass": "44/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
+    {
+      "run_id": "glm53-r2",
+      "model": "GLM-5.3",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.9230769230769231,
+            "recall": 0.4864864864864865,
+            "f1": 0.6371681415929203,
+            "tp": 36,
+            "fp": 3,
+            "fn": 38,
+            "tn": 187,
+            "family_pass": "11/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.8571428571428571,
+            "recall": 0.4864864864864865,
+            "f1": 0.6206896551724138,
+            "tp": 36,
+            "fp": 6,
+            "fn": 38,
+            "tn": 374,
+            "family_pass": "11/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.9230769230769231,
+            "recall": 0.4864864864864865,
+            "f1": 0.6371681415929203,
+            "tp": 36,
+            "fp": 3,
+            "fn": 38,
+            "tn": 187,
+            "family_pass": "11/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.8571428571428571,
+            "recall": 0.4864864864864865,
+            "f1": 0.6206896551724138,
+            "tp": 36,
+            "fp": 6,
+            "fn": 38,
+            "tn": 374,
+            "family_pass": "11/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        }
+      }
+    },
+    {
+      "run_id": "glm53-r3",
+      "model": "GLM-5.3",
+      "finish_reason": "agent_finished",
+      "policy_divergent_queries": 0,
+      "variants": {
+        "family": {
+          "full": {
+            "precision": 0.9117647058823529,
+            "recall": 0.4189189189189189,
+            "f1": 0.5740740740740741,
+            "tp": 31,
+            "fp": 3,
+            "fn": 43,
+            "tn": 187,
+            "family_pass": "9/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.8378378378378378,
+            "recall": 0.4189189189189189,
+            "f1": 0.5585585585585585,
+            "tp": 31,
+            "fp": 6,
+            "fn": 43,
+            "tn": 374,
+            "family_pass": "9/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          }
+        },
+        "any": {
+          "full": {
+            "precision": 0.9117647058823529,
+            "recall": 0.4189189189189189,
+            "f1": 0.5740740740740741,
+            "tp": 31,
+            "fp": 3,
+            "fn": 43,
+            "tn": 187,
+            "family_pass": "9/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
+          },
+          "neg2x": {
+            "precision": 0.8378378378378378,
+            "recall": 0.4189189189189189,
+            "f1": 0.5585585585585585,
+            "tp": 31,
+            "fp": 6,
+            "fn": 43,
+            "tn": 374,
+            "family_pass": "9/29",
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           }
         }
       }
@@ -61,6 +454,7 @@
       "run_id": "perfect",
       "model": "baseline",
       "finish_reason": "baseline",
+      "policy_divergent_queries": 0,
       "variants": {
         "family": {
           "full": {
@@ -72,7 +466,9 @@
             "fn": 0,
             "tn": 190,
             "family_pass": "29/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           },
           "neg2x": {
             "precision": 1,
@@ -81,9 +477,11 @@
             "tp": 74,
             "fp": 0,
             "fn": 0,
-            "tn": 760,
+            "tn": 380,
             "family_pass": "29/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           }
         },
         "any": {
@@ -96,7 +494,9 @@
             "fn": 0,
             "tn": 190,
             "family_pass": "29/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           },
           "neg2x": {
             "precision": 1,
@@ -105,9 +505,11 @@
             "tp": 74,
             "fp": 0,
             "fn": 0,
-            "tn": 760,
+            "tn": 380,
             "family_pass": "29/29",
-            "noise_pass": "45/45"
+            "noise_pass": "45/45",
+            "extra_hits": 0,
+            "unattributed_hits": 0
           }
         }
       }
@@ -116,14 +518,32 @@
   "rankings": {
     "A_full": [
       "perfect",
+      "ds41f-r3",
+      "ds41f-r2",
+      "glm53-r2",
+      "glm53-r3",
+      "glm53-r1",
+      "ds41f-r1",
       "empty"
     ],
     "B_full": [
       "perfect",
+      "ds41f-r3",
+      "ds41f-r2",
+      "glm53-r2",
+      "glm53-r3",
+      "glm53-r1",
+      "ds41f-r1",
       "empty"
     ],
     "A_neg2x": [
       "perfect",
+      "ds41f-r3",
+      "ds41f-r2",
+      "glm53-r2",
+      "glm53-r3",
+      "glm53-r1",
+      "ds41f-r1",
       "empty"
     ],
     "ranking_stable_A_vs_B": true,
@@ -134,5 +554,7 @@
     "empty": "ok：两口径一致",
     "perfect": "ok：两口径一致"
   },
-  "conclusion": "relax-any：排序一致且分差 <5 个百分点，归属可考虑放宽（policy=any）"
+  "non_baseline_runs": 6,
+  "runs_with_policy_divergence": 0,
+  "conclusion": "insufficient_signal：所有非基线 run 在 A/B 下逐题判定完全相同（没有\"正例只被错误家族命中\"的题），ΔF1=0 不能区分归属必要与过严"
 }

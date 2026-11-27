@@ -245,7 +245,9 @@ interface AblationRow {
   run_id: string
   model: string | null
   finish_reason?: string
-  variants: Record<Policy, Record<Balance, { precision: number; recall: number; f1: number; tp: number; fp: number; fn: number; tn: number; family_pass: string; noise_pass: string }>>
+  /** A 口径下为 TP/FN，B 口径下翻转的题数；为 0 说明该 run 无法区分两种口径 */
+  policy_divergent_queries: number
+  variants: Record<Policy, Record<Balance, { precision: number; recall: number; f1: number; tp: number; fp: number; fn: number; tn: number; family_pass: string; noise_pass: string; extra_hits: number; unattributed_hits: number }>>
 }
 
 function rankingOf(rows: AblationRow[], policy: Policy, balance: Balance): string[] {
@@ -266,20 +268,41 @@ function cmdAblation(): void {
     if (!existsSync(`${dir}/lookups.jsonl`)) continue
     const meta = JSON.parse(readFileSync(`${dir}/meta.json`, 'utf8')) as Record<string, unknown>
     const variants = {} as AblationRow['variants']
-    for (const policy of ['family', 'any'] as Policy[]) {
-      variants[policy] = {} as Record<Balance, AblationRow['variants']['family']['full']>
-      for (const balance of ['full', 'neg2x'] as Balance[]) {
-        const s = scoreRun(e.name, policy, balance)
-        variants[policy][balance] = {
-          precision: s.matrix.precision, recall: s.matrix.recall, f1: s.matrix.f1,
-          // computeScore 已按 negW 缩放过 fp/tn，这里不能再乘一次
-          tp: s.matrix.tp, fp: s.matrix.fp, fn: s.matrix.fn, tn: s.matrix.tn,
-          family_pass: `${s.family_pass.passed}/${s.family_pass.total}`,
-          noise_pass: `${s.noise_pass.passed}/${s.noise_pass.total}`,
-        }
+    let divergent = 0
+    for (const balance of ['full', 'neg2x'] as Balance[]) {
+      // 同一批 lookup 结果：A/B 只差"正例算不算命中"的判定，跑两次纯计算
+      const sA = scoreRun(e.name, 'family', balance)
+      const sB = scoreRun(e.name, 'any', balance)
+      const aByQuery = new Map(sA.per_query.map((r) => [r.query_id, r.verdict]))
+      const diff = sB.per_query.filter((r) => aByQuery.get(r.query_id) !== r.verdict).length
+      if (balance === 'full') divergent = diff
+      variants.family = variants.family ?? ({} as Record<Balance, AblationRow['variants']['family']['full']>)
+      variants.any = variants.any ?? ({} as Record<Balance, AblationRow['variants']['any']['full']>)
+      variants.family[balance] = {
+        precision: sA.matrix.precision, recall: sA.matrix.recall, f1: sA.matrix.f1,
+        // computeScore 已按 negW 缩放过 fp/tn，这里不能再乘一次
+        tp: sA.matrix.tp, fp: sA.matrix.fp, fn: sA.matrix.fn, tn: sA.matrix.tn,
+        family_pass: `${sA.family_pass.passed}/${sA.family_pass.total}`,
+        noise_pass: `${sA.noise_pass.passed}/${sA.noise_pass.total}`,
+        extra_hits: sA.extra_hits_total,
+        unattributed_hits: sA.unattributed_hits_total,
+      }
+      variants.any[balance] = {
+        precision: sB.matrix.precision, recall: sB.matrix.recall, f1: sB.matrix.f1,
+        tp: sB.matrix.tp, fp: sB.matrix.fp, fn: sB.matrix.fn, tn: sB.matrix.tn,
+        family_pass: `${sB.family_pass.passed}/${sB.family_pass.total}`,
+        noise_pass: `${sB.noise_pass.passed}/${sB.noise_pass.total}`,
+        extra_hits: sB.extra_hits_total,
+        unattributed_hits: sB.unattributed_hits_total,
       }
     }
-    rows.push({ run_id: e.name, model: (meta.model as string | null) ?? null, finish_reason: meta.finish_reason as string | undefined, variants })
+    rows.push({
+      run_id: e.name,
+      model: (meta.model as string | null) ?? null,
+      finish_reason: meta.finish_reason as string | undefined,
+      policy_divergent_queries: divergent,
+      variants,
+    })
   }
   const rankAfull = rankingOf(rows, 'family', 'full')
   const rankBfull = rankingOf(rows, 'any', 'full')
@@ -301,14 +324,17 @@ function cmdAblation(): void {
   // 只有基线时不出结论：A/B 只在"正例被错误家族命中"时分叉，空库（无词条）与
   // 满分库（零误配）必然同分，ΔF1=0 是构造结果，不是"归属可放宽"的证据（设计 §8.4）。
   const nonBaseline = rows.filter((r) => r.model !== 'baseline' && r.run_id !== 'empty' && r.run_id !== 'perfect')
+  const discriminating = nonBaseline.filter((r) => r.policy_divergent_queries > 0)
   const conclusion = nonBaseline.length === 0
     ? 'insufficient_runs：只有基线，A/B 在两端点上必然同分，不能据此判断归属是否必要'
-    : sameOrder(rankAfull, rankBfull) && maxGapFull < 0.05
-      ? 'relax-any：排序一致且分差 <5 个百分点，归属可考虑放宽（policy=any）'
-      : 'keep-family：归属必要（B 口径改变排序或分差显著），保留 family 归属'
+    : discriminating.length === 0
+      ? 'insufficient_signal：所有非基线 run 在 A/B 下逐题判定完全相同（没有"正例只被错误家族命中"的题），ΔF1=0 不能区分归属必要与过严'
+      : sameOrder(rankAfull, rankBfull) && maxGapFull < 0.05
+        ? 'relax-any：排序一致且分差 <5 个百分点，归属可考虑放宽（policy=any）'
+        : 'keep-family：归属必要（B 口径改变排序或分差显著），保留 family 归属'
   const out = {
     generated_at: new Date().toISOString(),
-    note: 'A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。',
+    note: 'A=家族口径（v5 默认）；B=any-hit（正例命中任一单家族词条即 TP）。跨家族/未归属词条两种口径都不参与正例计分；负例相同。neg2x=每条负例计两次。排序按 F1 降序（同分按 run_id）。policy_divergent_queries 是 A/B 判定翻转的题数：它为 0 的 run 对"归属是否必要"没有区分力，此时 ΔF1=0 不能当作"归属可放宽"的证据。',
     runs: rows,
     rankings: {
       A_full: rankAfull,
@@ -320,6 +346,7 @@ function cmdAblation(): void {
     },
     self_check: selfCheck,
     non_baseline_runs: nonBaseline.length,
+    runs_with_policy_divergence: discriminating.length,
     conclusion,
   }
   const file = 'benchmarks/curator-v1/ablation.json'

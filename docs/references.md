@@ -247,8 +247,8 @@ dsh-qqbot 把非 @ 消息只写进内存历史缓冲（上限 10 条、回复后
 - **隐藏测试验证 agent 产物**：SWE-bench https://arxiv.org/abs/2310.06770 ；Commit0 https://arxiv.org/abs/2412.01769 ；MLE-bench https://arxiv.org/abs/2410.07095
 - **持久库状态被评分 + 误伤惩罚**：τ-bench https://arxiv.org/abs/2406.12045 ；AppWorld（collateral damage）https://arxiv.org/abs/2407.18901
 - **对抗硬负例**：BFCL irrelevance https://gorilla.cs.berkeley.edu/blogs/8_berkeley_function_calling_leaderboard.html
-- **策展式增量维护**：ACE（Curator 角色，add/update/remove）https://arxiv.org/abs/2510.04618 ；MemoryAgentBench（selective forgetting）https://arxiv.org/abs/2507.05257 ；LongMemEval https://arxiv.org/abs/2410.10813
+- **策展式增量维护（过程上最接近）**：ACE（Curator 角色，add/update/remove；playbook 作为 Generator 的上下文，按隐藏任务成功率计分）https://arxiv.org/abs/2510.04618 ；其前身 Dynamic Cheatsheet（无标签自策展持久记忆）https://arxiv.org/abs/2504.07952 ；MemoryAgentBench（selective forgetting）https://arxiv.org/abs/2507.05257 ；LongMemEval https://arxiv.org/abs/2410.10813
 - **规则/检测器自动生成**：CheckerBench https://arxiv.org/abs/2610.07557 ；AutoPYara（家族聚类）https://arxiv.org/abs/2611.08608
 - **梗/中文网络语基准（全部是理解评测，无策展）**：CHEER https://arxiv.org/abs/2505.15071 ；MemeBench https://arxiv.org/abs/2607.27798
 
-组合层面的未见先例：数据型语义匹配库作为被评测产物；ban 作为一等可评分决策（可逆、误 ban 受罚）；多家族 + 按噪音候选归因的子任务计分；硬负例与误 ban 惩罚同时成立。完整调研报告含检索渠道与排除理由。
+组合层面的未见先例：数据型语义匹配库作为被评测产物；ban 作为一等可评分决策（可逆、误 ban 受罚）；多家族 + 按噪音候选归因的子任务计分；硬负例与误 ban 惩罚同时成立。与 ACE 的关系：同为"策展持久内容 → 隐藏下游任务成功率"，差别在 runtime（LLM vs CLI 匹配器）、产物形态（自然语言 vs 结构化规则）与策展信号（训练任务执行反馈、多轮迭代 vs 无反馈集、一次性策展）。完整调研报告含检索渠道与排除理由。
