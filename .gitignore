@@ -19,5 +19,7 @@ probe.ts
 benchmarks/**/outputs/
 benchmarks/**/report.json
 benchmarks/**/judge-prompt*
+benchmarks/curator-v1/runs/
+benchmarks/curator-v1/authoring/
 credentials*.json
 tmp-*.md
