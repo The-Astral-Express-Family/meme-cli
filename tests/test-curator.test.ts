@@ -234,6 +234,34 @@ describe('candidate-judgment-v5 数据契约', () => {
   })
 })
 
+describe('candidate-judgment-v6 用户审定', () => {
+  const labels = readFileSync('benchmarks/candidate-judgment-v6/labels.jsonl', 'utf8').trim().split('\n').map((l) => JSON.parse(l) as LabelRow)
+  const cases = readFileSync('benchmarks/candidate-judgment-v6/cases.jsonl', 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { case_id: string; source_cid: string })
+  const excluded = JSON.parse(readFileSync('benchmarks/candidate-judgment-v6/excluded.json', 'utf8')) as { rows: Array<{ source_cid: string }> }
+
+  it('144 条 case/label、22 家族、136 噪音候选', () => {
+    expect(cases).toHaveLength(144)
+    expect(labels).toHaveLength(144)
+    expect(new Set(labels.filter((l) => l.family_id).map((l) => l.family_id)).size).toBe(22)
+    expect(labels.filter((l) => l.candidate_verdict === 'not-meme')).toHaveLength(136)
+  })
+
+  it('AI味判非梗；能工智人标注四字重排；Claude别名与公式槽位正确', () => {
+    expect(labels.filter((l) => l.source_cid === 'c_69292' || l.source_cid === 'c_77293').every((l) => l.resolved_verdict === 'not-meme' && !l.family_id)).toBe(true)
+    expect(labels.find((l) => l.family_id === 'neng-gong-zhi-ren')?.rationale).toContain('四字的重排调侃')
+    expect(labels.find((l) => l.family_id === 'claude-da-xiao-jie')?.accepted_canonical_forms).toContain('克劳德大小姐')
+    expect(labels.find((l) => l.family_id === 'wo-qu-zhen-x-le')?.canonical_head).toBe('我去真<X>了')
+  })
+
+  it('此乃何物回退、B26/B27暂缓，均不进入评分集', () => {
+    const deferred = new Set(excluded.rows.map((r) => r.source_cid))
+    for (const cid of ['c_76868', 'c_83861', 'c_83577', 'c_71869']) {
+      expect(cases.some((c) => c.source_cid === cid)).toBe(false)
+      expect(deferred.has(cid)).toBe(true)
+    }
+  })
+})
+
 describe('金标形式 containment', () => {
   it('短 ASCII 形式按整词边界', () => {
     expect(containsForm('这波操作真nb', 'nb')).toBe(true)

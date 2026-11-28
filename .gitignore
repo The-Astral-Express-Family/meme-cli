@@ -23,5 +23,7 @@ benchmarks/curator-v1/runs/
 benchmarks/curator-v1/authoring/
 benchmarks/curator-v2/runs/
 benchmarks/curator-v2/authoring/
+benchmarks/curator-v3/runs/
+benchmarks/curator-v3/authoring/
 credentials*.json
 tmp-*.md

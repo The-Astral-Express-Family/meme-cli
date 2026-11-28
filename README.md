@@ -161,7 +161,7 @@ npx tsx scripts/curator-score.ts --run R    # 策展题评分（逐题 P/R/F1 + 
 npx tsx scripts/db-stats.ts        # 库存监控：表大小/WAL/freelist/轮次
 npx tsx scripts/rebuild.ts         # 候选池重建（预览）；--apply 就地重建（先自动一致性备份）
 npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接话向 search
-# 操作判定手册见 docs/meme-judgment-guide.md；策展题基准见 benchmarks/curator-v1/README.md；文献依据见 docs/references.md
+# 操作判定手册见 docs/meme-judgment-guide.md；最新 benchmark 草案见 benchmarks/curator-v3/README.md；文献依据见 docs/references.md
 ```
 
 ## 已知边界
@@ -170,3 +170,4 @@ npx tsx scripts/chat-sim.ts        # 群聊场景模拟：理解向 lookup + 接
 - B站搜索接口需登录态（`meme auth login`），匿名时探测通道自动跳过；`meme auth status` 可先查状态。
 - 图梗只发现（pHash 簇）不识图——理解留给操作员看图判断（check --focus 会列出候选的来源视频与用例）。
 - 收录与修订由操作员 agent 亲写 entry，CLI 不外呼任何 LLM；闸门（JSON 校验 / matcher 编译 / backtest）全本地。
+- 近音/形近变体（如“豪猫/好猫”“克劳德大小姐/Claude大小姐”）目前只支持显式别名；候选级近音适配仍为思路阶段，见 `docs/near-sound-adaptation.md`，尚未实现。

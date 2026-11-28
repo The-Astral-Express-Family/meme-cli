@@ -31,6 +31,12 @@ const SKELETONS: Record<string, string[]> = {
   'x-da-xue-xi': ['<ent>', '大学习'],
   'yi-yan-su-x': ['已严肃', '<ent>'],
   'xian-guo-x-zai-tan-wei-lai': ['先过', '<ent>', '再谈未来'],
+  'wo-qu-zhen-x-le': ['我去真', '<ent>', '了'],
+}
+
+/** 过宽 canonical 只作词条名/金标说明，不直接进 lex；正例必须用完整变体。 */
+const LEX_EXCLUDE: Record<string, string[]> = {
+  'chao-da-bei': ['超大杯'],
 }
 
 /** 同文异境对：trigger 落 ctx、response 落 text 的交互 pattern（family → pattern）。 */
@@ -74,7 +80,7 @@ function buildEntries(gold: ReturnType<typeof loadGold>, queries: Query[]): Entr
       for (const form of fs) if (forms.includes(form)) sharedForms.add(form)
     }
     const aliases = forms.filter((f) => f !== name && !extraNames.includes(f) && !sharedForms.has(f))
-    const nonSlot = forms.filter((f) => !f.includes('<') && !extraNames.includes(f))
+    const nonSlot = forms.filter((f) => !f.includes('<') && !extraNames.includes(f) && !(LEX_EXCLUDE[family] ?? []).includes(f))
     const cids = gold.familyCids.get(family) ?? []
     const holdouts = queries.filter((q) => q.expect.hit && q.expect.family === family).slice(0, 3).map((q) => q.text)
     const examples = queries.filter((q) => q.expect.hit && q.expect.family === family).slice(0, 2).map((q) => q.text)

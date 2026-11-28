@@ -1,0 +1,3 @@
+#!/bin/sh
+# curator run 的 meme 入口（bash/git-bash）：见同目录 meme.mjs
+exec node "$(dirname "$0")/meme.mjs" "$@"

@@ -1,0 +1,82 @@
+{
+  "dataset_id": "curator-v3",
+  "status": "draft",
+  "design": "docs/benchmark-v5-curator.md",
+  "gold_source": "benchmarks/candidate-judgment-v6/labels.jsonl",
+  "labels_revision": "2026-11-28-surf-r29-r31-user-reviewed",
+  "source": {
+    "type": "bilibili-surf",
+    "rounds": [
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "new_videos": 169,
+    "new_comments": 15522,
+    "candidate_pool_before": 14081,
+    "candidate_pool_after": 24585
+  },
+  "query_count": 382,
+  "positive_count": 44,
+  "negative_count": 338,
+  "family_count": 22,
+  "noise_candidate_count": 136,
+  "channels": {
+    "phrase": 372,
+    "formula": 4,
+    "interaction": 6
+  },
+  "seed": {
+    "case_count": 144,
+    "row_count": 144,
+    "note": "candidate-judgment-v6 一对一导出；无金标字段"
+  },
+  "excluded_from_scoring": {
+    "count": 41,
+    "path": "../candidate-judgment-v6/excluded.json",
+    "note": "操作员判定为真实梗/可能成梗但证据不足或语义存疑：既不进家族集，也不进噪音集。留在生产候选池继续观察。"
+  },
+  "hashes": {
+    "queries.jsonl": "36322d969714c7158ce634eaa82eed72c0ca868a57d22c4eab2488b19e88078d",
+    "seed/candidates.jsonl": "aca40caae2e0e5ce82393873fea3519f5f1304ae895ef58a98d2c33c2a3c9f2f",
+    "agent-prompt.md": "10ade12f5dee2dcc8080dffb6630f36a88ba15acdfd790bb3ec9586e54bf52bd",
+    "../candidate-judgment-v6/labels.jsonl": "3ce53f6ae3de73fb1038e0e2203c03c9d1541be56150a628a07c55a59fc07331",
+    "../candidate-judgment-v6/cases.jsonl": "e65d70aff7c7e3ecc8456efd498091c6d4ec55089cbbc2c3bf554cb29e0ff613"
+  },
+  "authorship": {
+    "writers": {
+      "count": 8,
+      "model": "子代理默认模型（未显式传参）",
+      "groups": "T1-T4 家族题 + T5-T8 噪音负例"
+    },
+    "reviewer": {
+      "count": 1,
+      "model": "root agent",
+      "scope": "用户审定 + 机械校验；未跑模型评测",
+      "date": "2026-11-28"
+    }
+  },
+  "user_corrections": [
+    "AI味判非梗，只作噪音负例",
+    "能工智人是人工智能四字重排调侃",
+    "空悲切确认真梗",
+    "此乃何物回退暂缓",
+    "超大杯是表示非常厉害的夸赞梗",
+    "Claude大小姐/克劳德大小姐入benchmark时必须提供足够AI/模型上下文",
+    "我去真<X>了为公式梗，起源康神开播了",
+    "玩<X>抓不到<Y>证据不足暂缓",
+    "<N>个<X>可以合成一个<Y>证据不足暂缓"
+  ],
+  "validation": {
+    "mechanical": "passed",
+    "query_count": 382,
+    "noise_coverage": "136/136",
+    "constraint_dependent_negatives": 2,
+    "model_evaluation": "not_run",
+    "baselines": "not_run"
+  },
+  "created_at": "2026-11-28"
+}

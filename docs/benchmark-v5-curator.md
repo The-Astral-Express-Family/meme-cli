@@ -2,7 +2,7 @@
 
 > 定稿待实现。本文只写必须遵从的约束；示例、执行清单、待办在临时交接文档（`tmp-curator-v5-handoff.md`）。
 >
-> `curator-v2` 复用本契约但使用独立数据版本（82 候选 / 13 家族 / 79 噪音候选 / 249 查询）；本文中的 71/29/45/264 是 `curator-v1` 的定稿规模，见 `benchmarks/curator-v2/README.md`。
+> `curator-v2` / `curator-v3` 复用本契约但使用独立数据版本；最新草案 `curator-v3` 为 144 候选 / 22 家族 / 136 噪音候选 / 382 查询，见 `benchmarks/curator-v3/README.md`。本文中的 71/29/45/264 是 `curator-v1` 的定稿规模。
 
 ## 1. 是什么
 
